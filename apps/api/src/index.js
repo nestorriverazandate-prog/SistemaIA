@@ -548,13 +548,28 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
 const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+// Quita del payload la columna que Supabase reporta como inexistente.
+// Acepta cualquier columna; si no la identifica, quita las opcionales conocidas.
 function sinColumnaFaltante(p, errorMsg) {
   const copia = { ...p };
-  const m = /column [`"]?(?:public\.)?pacientes\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
-  const col = m && PATIENT_OPTIONALES.includes(m[1]) ? m[1] : null;
-  if (col) delete copia[col];
-  else for (const f of PATIENT_OPTIONALES) delete copia[f]; // fallback: quitar todas
+  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
+  if (m && copia[m[1]] !== undefined) { delete copia[m[1]]; return copia; }
+  for (const f of [...PATIENT_OPTIONALES, 'qr_token', 'qr_activo', 'lat', 'lng', 'user_id', 'registrado_por']) delete copia[f];
   return copia;
+}
+
+// Ejecuta fn(payload) reintentando sin las columnas que la BD reporta inexistentes
+async function conReintentoColumnas(fn, payloadInicial) {
+  let payload = payloadInicial;
+  let ultimo = null;
+  for (let i = 0; i < 25; i++) {
+    ultimo = await fn(payload);
+    if (!ultimo.error || !/does not exist/i.test(ultimo.error.message)) return ultimo;
+    const reducido = sinColumnaFaltante(payload, ultimo.error.message);
+    if (JSON.stringify(reducido) === JSON.stringify(payload)) return ultimo;
+    payload = reducido;
+  }
+  return ultimo;
 }
 
 function sanitizePatient(body) {
@@ -583,19 +598,11 @@ app.post('/api/pacientes', requireUser, async (req, res) => {
     if (!p.qr_token) p.qr_token = `AGI-${randomBytes(8).toString('hex').toUpperCase()}`;
     if (p.qr_activo == null) p.qr_activo = true;
 
-    let { data, error } = await supabase
-      .from('pacientes')
-      .insert({ ...p, estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email })
-      .select()
-      .single();
-    // Si la BD aún no tiene las columnas opcionales, reintenta sin ellas
-    if (error && /does not exist/i.test(error.message)) {
-      ({ data, error } = await supabase
-        .from('pacientes')
-        .insert({ ...sinColumnaFaltante(p, error.message), estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email })
-        .select()
-        .single());
-    }
+    const base = { ...p, estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email };
+    const { data, error } = await conReintentoColumnas(
+      (payload) => supabase.from('pacientes').insert(payload).select().single(),
+      base
+    );
     if (error) throw error;
 
     await appendToDriveDoc(data);
@@ -634,20 +641,10 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
   try {
     const update = sanitizePatient(req.body);
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
-    let { data, error } = await supabase
-      .from('pacientes')
-      .update(update)
-      .eq('id', req.params.id)
-      .select()
-      .single();
-    if (error && /does not exist/i.test(error.message)) {
-      ({ data, error } = await supabase
-        .from('pacientes')
-        .update(sinColumnaFaltante(update, error.message))
-        .eq('id', req.params.id)
-        .select()
-        .single());
-    }
+    const { data, error } = await conReintentoColumnas(
+      (payload) => supabase.from('pacientes').update(payload).eq('id', req.params.id).select().single(),
+      update
+    );
     if (error) throw error;
     res.json({ paciente: data });
   } catch (e) {
@@ -1072,11 +1069,12 @@ app.post('/api/visitas/:id/ping', requireUser, async (req, res) => {
 app.get('/api/qr/:token', requireUser, async (req, res) => {
   try {
     const token = String(req.params.token || '').trim().toUpperCase();
-    const { data: pac } = await supabase
+    const { data: pac, error: errPac } = await supabase
       .from('pacientes')
-      .select('id, nombre, apellido, direccion, lat, lng')
+      .select('id, nombre, apellido, direccion, lat, lng, qr_activo')
       .eq('qr_token', token)
       .maybeSingle();
+    if (errPac) return res.status(503).json({ error: 'El módulo QR aún no está activado en la base de datos' });
     if (!pac || pac.qr_activo === false) {
       return res.status(404).json({ error: 'Código QR inválido o desactivado' });
     }
@@ -1107,11 +1105,12 @@ app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
     if (!token) return res.status(400).json({ error: 'token requerido' });
 
     const tk = String(token).trim().toUpperCase();
-    const { data: pac } = await supabase
+    const { data: pac, error: errPac } = await supabase
       .from('pacientes')
-      .select('id, nombre, apellido, direccion, lat, lng')
+      .select('id, nombre, apellido, direccion, lat, lng, qr_activo')
       .eq('qr_token', tk)
       .maybeSingle();
+    if (errPac) return res.status(503).json({ error: 'El módulo QR aún no está activado en la base de datos' });
     if (!pac || pac.qr_activo === false) {
       return res.status(404).json({ error: 'Código QR inválido o desactivado' });
     }
