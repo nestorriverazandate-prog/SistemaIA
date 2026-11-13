@@ -563,18 +563,22 @@ function sinColumnaFaltante(p, errorMsg) {
   return copia;
 }
 
-// Ejecuta fn(payload) reintentando sin las columnas que la BD reporta inexistentes
+// Ejecuta fn(payload) reintentando sin las columnas que la BD reporta inexistentes.
+// Devuelve { data, error, payload, vacio } — vacio=true si no quedó nada que actualizar.
 async function conReintentoColumnas(fn, payloadInicial) {
   let payload = payloadInicial;
   let ultimo = null;
   for (let i = 0; i < 25; i++) {
+    if (!Object.keys(payload).length) return { data: null, error: null, payload, vacio: true };
     ultimo = await fn(payload);
-    if (!ultimo.error || !/does not exist|schema cache|Could not find/i.test(ultimo.error.message)) return ultimo;
+    if (!ultimo.error || !/does not exist|schema cache|Could not find/i.test(ultimo.error.message)) {
+      return { ...ultimo, payload, vacio: false };
+    }
     const reducido = sinColumnaFaltante(payload, ultimo.error.message);
-    if (JSON.stringify(reducido) === JSON.stringify(payload)) return ultimo;
+    if (JSON.stringify(reducido) === JSON.stringify(payload)) return { ...ultimo, payload, vacio: false };
     payload = reducido;
   }
-  return ultimo;
+  return { ...(ultimo || {}), payload, vacio: false };
 }
 
 function sanitizePatient(body) {
@@ -648,12 +652,17 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
   try {
     const update = sanitizePatient(req.body);
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const { data, error } = await conReintentoColumnas(
+    const resUpdate = await conReintentoColumnas(
       (payload) => supabase.from('pacientes').update(payload).eq('id', req.params.id).select().single(),
       update
     );
-    if (error) throw error;
-    res.json({ paciente: data });
+    if (resUpdate.error) throw resUpdate.error;
+    // Si todas las columnas enviadas no existen aún en la BD, devolver el registro actual
+    if (resUpdate.vacio) {
+      const { data: actual } = await supabase.from('pacientes').select('*').eq('id', req.params.id).single();
+      return res.json({ paciente: actual });
+    }
+    res.json({ paciente: resUpdate.data });
   } catch (e) {
     console.error('PATCH paciente:', e);
     res.status(500).json({ error: 'Error al actualizar paciente' });
