@@ -616,6 +616,7 @@
  {#if stats}<span class="badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
+ <a class="ghost link" href="#directorio">Personal</a>
  <div class="notif-wrap">
  <button class="ghost bell" onclick={() => (notifAbiertas = !notifAbiertas)}>
  Notificaciones{#if noLeidas}<span class="notif-count">{noLeidas}</span>{/if}
@@ -712,39 +713,6 @@
  </section>
 
  {#if esAdmin}
- <section class="card wide">
- <h2>Usuarios registrados ({perfiles.length})</h2>
- <table>
- <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
- <tbody>
- {#each perfiles as u (u.id)}
- <tr>
- <td>{u.email}</td>
- <td>{u.nombre || '—'}</td>
- <td>
- <select class="rol-select" value={u.rol} disabled={u.email === ADMIN_EMAIL} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
- {#each opcionesRol(u) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
- </select>
- </td>
- <td><span class="estado estado-{u.estado === 'aprobado'? 'completado': u.estado === 'rechazado'? 'cancelado': 'pendiente'}">{u.estado}</span></td>
- <td class="acciones">
- {#if u.estado!== 'aprobado'}
- <button class="mini" onclick={() => cambiarPerfil(u.id, { estado: 'aprobado' })}>Aprobar</button>
- {/if}
- {#if u.estado!== 'rechazado'}
- <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { estado: 'rechazado' })}>Rechazar</button>
- {/if}
- <button class="mini ghost" onclick={() => abrirDirectorio(u)}>Expediente</button>
- </td>
- </tr>
- {:else}
- <tr><td colspan="5">Sin usuarios</td></tr>
- {/each}
- </tbody>
- </table>
-
- </section>
-
  <!-- ===== Directorio y expedientes del personal ===== -->
  <section class="card wide" id="directorio">
  <div class="dir-header">
@@ -908,6 +876,40 @@
  </div>
  {/if}
  </section>
+
+ <section class="card wide">
+ <h2>Usuarios registrados ({perfiles.length})</h2>
+ <table>
+ <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+ <tbody>
+ {#each perfiles as u (u.id)}
+ <tr>
+ <td>{u.email}</td>
+ <td>{u.nombre || '—'}</td>
+ <td>
+ <select class="rol-select" value={u.rol} disabled={u.email === ADMIN_EMAIL} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
+ {#each opcionesRol(u) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
+ </select>
+ </td>
+ <td><span class="estado estado-{u.estado === 'aprobado'? 'completado': u.estado === 'rechazado'? 'cancelado': 'pendiente'}">{u.estado}</span></td>
+ <td class="acciones">
+ {#if u.estado!== 'aprobado'}
+ <button class="mini" onclick={() => cambiarPerfil(u.id, { estado: 'aprobado' })}>Aprobar</button>
+ {/if}
+ {#if u.estado!== 'rechazado'}
+ <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { estado: 'rechazado' })}>Rechazar</button>
+ {/if}
+ <button class="mini ghost" onclick={() => abrirDirectorio(u)}>Expediente</button>
+ </td>
+ </tr>
+ {:else}
+ <tr><td colspan="5">Sin usuarios</td></tr>
+ {/each}
+ </tbody>
+ </table>
+
+ </section>
+
 
  <section class="card wide">
  <h2>Paquetes y servicios ({paquetes.length})</h2>
