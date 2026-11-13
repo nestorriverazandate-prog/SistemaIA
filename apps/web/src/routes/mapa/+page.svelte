@@ -2,8 +2,9 @@
   import { onMount, tick } from 'svelte';
   import { api, getToken } from '$lib/api';
   import { env } from '$env/dynamic/public';
-  import L from 'leaflet';
   import 'leaflet/dist/leaflet.css';
+
+  let L; // Leaflet se importa dinámicamente en onMount (no existe en SSR)
 
   let mapEl;
   let map;
@@ -205,9 +206,10 @@
   }
 
   function onPageShow(e) { if (e.persisted) window.location.reload(); }
-  window.addEventListener('pageshow', onPageShow);
 
   onMount(async () => {
+    window.addEventListener('pageshow', onPageShow);
+    L = (await import('leaflet')).default;
     if (!token) { loading = false; return; }
     try {
       const { user } = await api.me();

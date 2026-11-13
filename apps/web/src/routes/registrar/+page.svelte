@@ -1,7 +1,6 @@
 <script>
  import { onMount, onDestroy } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
- import { Html5Qrcode } from 'html5-qrcode';
 
  let perfil = $state(null);
  let loading = $state(true);
@@ -30,6 +29,7 @@
  error = ''; resultado = null; domicilio = null; visita = null;
  escaneando = true;
  try {
+ const { Html5Qrcode } = await import('html5-qrcode');
  scanner = new Html5Qrcode('lector-qr');
  await scanner.start(
  { facingMode: 'environment' },

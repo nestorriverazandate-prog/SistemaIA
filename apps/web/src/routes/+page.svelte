@@ -464,9 +464,9 @@
  // Si el navegador restaura la página desde bfcache (botón atrás),
  // recargar para revalidar la sesión en vez de mostrar login obsoleto
  function onPageShow(e) { if (e.persisted) window.location.reload(); }
- window.addEventListener('pageshow', onPageShow);
 
  onMount(async () => {
+ window.addEventListener('pageshow', onPageShow);
  // Sesión previa por token
  if (getToken()) {
  try {

@@ -127,9 +127,9 @@
   }
 
   function onPageShow(e) { if (e.persisted) window.location.reload(); }
-  window.addEventListener('pageshow', onPageShow);
 
   onMount(async () => {
+    window.addEventListener('pageshow', onPageShow);
     if (!token) { loading = false; return; }
     try {
       const { user } = await api.me();
@@ -141,7 +141,7 @@
     loading = false;
   });
 
-  onDestroy(() => { if (watchId != null) navigator.geolocation.clearWatch(watchId); window.removeEventListener('pageshow', onPageShow); });
+  onDestroy(() => { if (typeof window === 'undefined') return; if (watchId != null) navigator.geolocation.clearWatch(watchId); window.removeEventListener('pageshow', onPageShow); });
 </script>
 
 <svelte:head><title>Visitas Domiciliarias</title></svelte:head>
