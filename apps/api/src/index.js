@@ -15,7 +15,7 @@ import { OAuth2Client } from 'google-auth-library';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 const app = express();
@@ -1173,10 +1173,18 @@ app.post('/api/auth/restablecer', async (req, res) => {
   }
 });
 
-// ---------- Frontend estático (mismo servidor) ----------
+// ---------- Frontend estático (solo en ejecución local; en Vercel el web es otro servicio) ----------
 const webBuild = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/build');
-app.use(express.static(webBuild));
-// SPA fallback: cualquier ruta que no sea /api devuelve index.html
-app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(webBuild, 'index.html')));
+if (existsSync(webBuild)) {
+  app.use(express.static(webBuild));
+  // SPA fallback: cualquier ruta que no sea /api devuelve index.html
+  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(webBuild, 'index.html')));
+}
 
-app.listen(PORT, () => console.log(`Servidor único en http://localhost:${PORT} (API + frontend)`));
+export default app;
+
+// Solo escuchar en ejecución local (node src/index.js); en Vercel se exporta como función
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  app.listen(PORT, () => console.log(`Servidor único en http://localhost:${PORT} (API + frontend)`));
+}
