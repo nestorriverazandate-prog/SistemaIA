@@ -361,8 +361,9 @@ const PERFIL_EXPEDIENTE = [
 // Quita de un objeto la columna que Supabase reporta como inexistente
 function sinColumnaReportada(obj, errorMsg) {
   const copia = { ...obj };
-  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
-  if (m) delete copia[m[1]];
+  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist|Could not find the ['"`]([a-z_]+)['"`] column/i.exec(errorMsg || '');
+  const col = m && (m[1] || m[2]);
+  if (col) delete copia[col];
   return copia;
 }
 
@@ -431,7 +432,7 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
     for (let i = 0; i < 25; i++) {
       ({ data, error } = await supabase.from('perfiles').update(payload).eq('id', req.params.id).select().single());
       if (!error) break;
-      if (!/does not exist/i.test(error.message)) break;
+      if (!/does not exist|schema cache|Could not find/i.test(error.message)) break;
       const reducido = sinColumnaReportada(payload, error.message);
       if (JSON.stringify(reducido) === JSON.stringify(payload)) break; // columna no reconocida
       payload = reducido;
@@ -493,7 +494,7 @@ app.post('/api/trabajadores', requireUser, async (req, res) => {
     for (let i = 0; i < 25; i++) {
       ({ data, error } = await supabase.from('perfiles').insert(payload).select().single());
       if (!error) break;
-      if (!/does not exist/i.test(error.message)) break;
+      if (!/does not exist|schema cache|Could not find/i.test(error.message)) break;
       const reducido = sinColumnaReportada(payload, error.message);
       if (JSON.stringify(reducido) === JSON.stringify(payload)) break;
       payload = reducido;
@@ -552,8 +553,9 @@ const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergenci
 // Acepta cualquier columna; si no la identifica, quita las opcionales conocidas.
 function sinColumnaFaltante(p, errorMsg) {
   const copia = { ...p };
-  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
-  if (m && copia[m[1]] !== undefined) { delete copia[m[1]]; return copia; }
+  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist|Could not find the ['"`]([a-z_]+)['"`] column/i.exec(errorMsg || '');
+  const col = m && (m[1] || m[2]);
+  if (col && copia[col] !== undefined) { delete copia[col]; return copia; }
   for (const f of [...PATIENT_OPTIONALES, 'qr_token', 'qr_activo', 'lat', 'lng', 'user_id', 'registrado_por']) delete copia[f];
   return copia;
 }
@@ -564,7 +566,7 @@ async function conReintentoColumnas(fn, payloadInicial) {
   let ultimo = null;
   for (let i = 0; i < 25; i++) {
     ultimo = await fn(payload);
-    if (!ultimo.error || !/does not exist/i.test(ultimo.error.message)) return ultimo;
+    if (!ultimo.error || !/does not exist|schema cache|Could not find/i.test(ultimo.error.message)) return ultimo;
     const reducido = sinColumnaFaltante(payload, ultimo.error.message);
     if (JSON.stringify(reducido) === JSON.stringify(payload)) return ultimo;
     payload = reducido;
@@ -1166,7 +1168,7 @@ app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
     for (let i = 0; i < 10; i++) {
       ({ data: nv, error } = await supabase.from('visitas').update(payload).eq('id', v.id).select().single());
       if (!error) break;
-      if (!/does not exist/i.test(error.message)) break;
+      if (!/does not exist|schema cache|Could not find/i.test(error.message)) break;
       const reducido = sinColumnaReportada(payload, error.message);
       if (JSON.stringify(reducido) === JSON.stringify(payload)) break;
       payload = reducido;
