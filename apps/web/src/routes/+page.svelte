@@ -22,6 +22,7 @@
 
  let form = $state({
  nombre: '', apellido: '', edad: '', telefono: '', email: '',
+ contacto_emergencia: '', telefono_emergencia: '',
  direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '',
  lat: null, lng: null
  });
@@ -254,12 +255,14 @@
  let empMsg = $state('');
  let empError = $state('');
  let empSaving = $state(false);
- const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null };
+ const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', contacto_emergencia: '', telefono_emergencia: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null };
 
  function editar(p) {
  form = {
  nombre: p.nombre || '', apellido: p.apellido || '', edad: p.cedula || '',
- telefono: p.telefono || '', email: p.email || '', direccion: p.direccion || '',
+ telefono: p.telefono || '', email: p.email || '',
+ contacto_emergencia: p.contacto_emergencia || '', telefono_emergencia: p.telefono_emergencia || '',
+ direccion: p.direccion || '',
  tipo_servicio: p.tipo_servicio || '', descripcion: p.descripcion || '',
  fecha_solicitud: p.fecha_solicitud ? String(p.fecha_solicitud).slice(0, 10) : '',
  fecha_inicio: p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : '',
@@ -547,6 +550,10 @@
  <label>Teléfono <input bind:value={form.telefono} /></label>
  <label>Email <input bind:value={form.email} type="email" /></label>
  </div>
+ <div class="row">
+ <label>Nombre del contacto de emergencia <input bind:value={form.contacto_emergencia} /></label>
+ <label>Teléfono de emergencia <input bind:value={form.telefono_emergencia} type="tel" /></label>
+ </div>
  <label>Dirección <input bind:value={form.direccion} /></label>
  <div class="row">
  <label>Tipo de servicio <input bind:value={form.tipo_servicio} placeholder="Consulta, examen…" /></label>
@@ -579,7 +586,7 @@
  <tbody>
  {#each pacientes as p (p.id)}
  <tr>
- <td>{p.nombre} {p.apellido}</td>
+ <td>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
  <td>{p.cedula ? p.cedula + ' años' : '—'}</td>
  <td>{p.tipo_servicio || '—'}{#if p.fecha_inicio || p.fecha_termino}<br/><small class="muted">Inicio: {p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : '—'} · Fin: {p.fecha_termino ? String(p.fecha_termino).slice(0, 10) : '—'}</small>{/if}</td>
  <td><span class="estado estado-{p.estado}">{p.estado}</span></td>
@@ -758,7 +765,7 @@
  <tbody>
  {#each pacientes as p (p.id)}
  <tr>
- <td>{p.nombre} {p.apellido}</td>
+ <td>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
  <td>{p.cedula ? p.cedula + ' años' : '—'}</td>
  <td>{p.direccion || '—'}</td>
  <td>{p.telefono || '—'}</td>

@@ -393,7 +393,17 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
 });
 
 // ---------- Pacientes ----------
-const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino'];
+const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+// Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
+const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+function sinColumnaFaltante(p, errorMsg) {
+  const copia = { ...p };
+  const m = /column [`"]?(?:public\.)?pacientes\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
+  const col = m && PATIENT_OPTIONALES.includes(m[1]) ? m[1] : null;
+  if (col) delete copia[col];
+  else for (const f of PATIENT_OPTIONALES) delete copia[f]; // fallback: quitar todas
+  return copia;
+}
 
 function sanitizePatient(body) {
   const p = {};
@@ -422,12 +432,11 @@ app.post('/api/pacientes', requireUser, async (req, res) => {
       .insert({ ...p, estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email })
       .select()
       .single();
-    // Si la BD aún no tiene las columnas de fechas, reintenta sin ellas
+    // Si la BD aún no tiene las columnas opcionales, reintenta sin ellas
     if (error && /does not exist/i.test(error.message)) {
-      const { fecha_inicio, fecha_termino, ...sinFechas } = p;
       ({ data, error } = await supabase
         .from('pacientes')
-        .insert({ ...sinFechas, estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email })
+        .insert({ ...sinColumnaFaltante(p, error.message), estado: 'pendiente', user_id: req.user.id, registrado_por: req.user.email })
         .select()
         .single());
     }
@@ -476,10 +485,9 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
       .select()
       .single();
     if (error && /does not exist/i.test(error.message)) {
-      const { fecha_inicio, fecha_termino, ...sinFechas } = update;
       ({ data, error } = await supabase
         .from('pacientes')
-        .update(sinFechas)
+        .update(sinColumnaFaltante(update, error.message))
         .eq('id', req.params.id)
         .select()
         .single());

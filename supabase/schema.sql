@@ -12,6 +12,8 @@ create table if not exists public.pacientes (
   fecha_solicitud date,
   fecha_inicio date,
   fecha_termino date,
+  contacto_emergencia text,
+  telefono_emergencia text,
   estado text not null default 'pendiente'
     check (estado in ('pendiente', 'en_proceso', 'completado', 'cancelado')),
   registrado_por text,
