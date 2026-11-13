@@ -406,7 +406,7 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
       }
       if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
       if (req.body.nombre != null) update.nombre = String(req.body.nombre).slice(0, 200);
-      for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
+      for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = CAMPOS_FECHA.has(f) && req.body[f] === '' ? null : String(req.body[f]).slice(0, 300);
       // Contactos de emergencia: arreglo JSON (máx. 2, uno principal)
       if (Array.isArray(req.body.contactos_emergencia)) {
         const limpios = req.body.contactos_emergencia.slice(0, 2).map((c) => ({
@@ -487,7 +487,7 @@ app.post('/api/trabajadores', requireUser, async (req, res) => {
     const uid = authData.user.id;
 
     const perfil = { id: uid, email, nombre, estado: 'aprobado', rol };
-    for (const f of PERFIL_EXPEDIENTE) if (b[f] != null) perfil[f] = String(b[f]).slice(0, 300);
+    for (const f of PERFIL_EXPEDIENTE) if (b[f] != null) perfil[f] = CAMPOS_FECHA.has(f) && b[f] === '' ? null : String(b[f]).slice(0, 300);
     if (Array.isArray(b.contactos_emergencia)) perfil.contactos_emergencia = b.contactos_emergencia.slice(0, 2);
 
     let data = null, error = null, payload = perfil;
@@ -549,6 +549,9 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
 const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+// Campos de fecha: '' del formulario se guarda como null
+const CAMPOS_FECHA = new Set(['fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'fecha_contratacion', 'fecha_nacimiento']);
+
 // Quita del payload la columna que Supabase reporta como inexistente.
 // Acepta cualquier columna; si no la identifica, quita las opcionales conocidas.
 function sinColumnaFaltante(p, errorMsg) {
@@ -578,6 +581,8 @@ function sanitizePatient(body) {
   const p = {};
   for (const f of PATIENT_FIELDS) if (body[f] != null) p[f] = String(body[f]).slice(0, 500);
   if (body.qr_activo != null) p.qr_activo = body.qr_activo === true || body.qr_activo === 'true';
+  // Fechas vacías del formulario → null (Postgres rechaza '')
+  for (const f of CAMPOS_FECHA) if (p[f] === '') p[f] = null;
   // El formulario envía "edad"; se guarda en la columna cedula (texto)
   if (body.edad != null && p.cedula == null) {
     const e = Number(body.edad);
