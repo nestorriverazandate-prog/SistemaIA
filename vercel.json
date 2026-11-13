@@ -7,7 +7,9 @@
     },
     "web": {
       "root": "apps/web",
-      "framework": "sveltekit-1"
+      "framework": "sveltekit-1",
+      "outputDirectory": "build",
+      "buildCommand": "npm run build"
     }
   },
   "rewrites": [
