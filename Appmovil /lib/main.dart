@@ -1,19 +1,25 @@
-import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+
+/// URL pública del sistema (frontend en Vercel). Cambia aquí si el dominio cambia.
+const String kAppUrl = 'https://sistemaia-nestor-fbf5.vercel.app';
 
 void main() {
-  runApp(const VelocimetroApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const AgenciaApp());
 }
 
-class VelocimetroApp extends StatelessWidget {
-  const VelocimetroApp({super.key});
+class AgenciaApp extends StatelessWidget {
+  const AgenciaApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Velocímetro GPS',
+      title: 'Agencia Gerontológica',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: const Color(0xFF0B0F14),
@@ -22,248 +28,138 @@ class VelocimetroApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const VelocimetroPage(),
+      home: const WebAppPage(),
     );
   }
 }
 
-enum _Unit { kmh, mph }
-
-class VelocimetroPage extends StatefulWidget {
-  const VelocimetroPage({super.key});
+class WebAppPage extends StatefulWidget {
+  const WebAppPage({super.key});
 
   @override
-  State<VelocimetroPage> createState() => _VelocimetroPageState();
+  State<WebAppPage> createState() => _WebAppPageState();
 }
 
-class _VelocimetroPageState extends State<VelocimetroPage> {
-  StreamSubscription<Position>? _sub;
-  bool _midiendo = false;
-  _Unit _unidad = _Unit.kmh;
-
-  double _velocidadMs = 0;
-  double? _precision;
-  double? _altitud;
-  DateTime? _ultimaActualizacion;
+class _WebAppPageState extends State<WebAppPage> {
+  late final WebViewController _controller;
+  bool _cargando = true;
   String? _error;
-
-  Future<void> _toggleMedicion() async {
-    if (_midiendo) {
-      await _detener();
-      return;
-    }
-    await _iniciar();
-  }
-
-  Future<void> _iniciar() async {
-    setState(() {
-      _error = null;
-      _velocidadMs = 0;
-    });
-
-    final servicioActivo = await Geolocator.isLocationServiceEnabled();
-    if (!servicioActivo) {
-      setState(() => _error = 'Activa el GPS del dispositivo');
-      return;
-    }
-
-    var permiso = await Geolocator.checkPermission();
-    if (permiso == LocationPermission.denied) {
-      permiso = await Geolocator.requestPermission();
-    }
-    if (permiso == LocationPermission.denied ||
-        permiso == LocationPermission.deniedForever) {
-      setState(() => _error = 'Permiso de ubicación denegado');
-      return;
-    }
-
-    try {
-      _sub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          distanceFilter: 3,
-        ),
-      ).listen(
-        _onPosicion,
-        onError: (Object e) {
-          if (mounted) setState(() => _error = e.toString());
-        },
-      );
-      setState(() => _midiendo = true);
-    } catch (e) {
-      setState(() => _error = e.toString());
-    }
-  }
-
-  Future<void> _detener() async {
-    await _sub?.cancel();
-    _sub = null;
-    if (mounted) {
-      setState(() {
-        _midiendo = false;
-        _velocidadMs = 0;
-        _precision = null;
-        _altitud = null;
-        _ultimaActualizacion = null;
-      });
-    }
-  }
-
-  void _onPosicion(Position pos) {
-    if (!mounted) return;
-    setState(() {
-      // position.speed viene en m/s; valores negativos o errores se ignoran
-      if (pos.speed >= 0) _velocidadMs = pos.speed;
-      _precision = pos.accuracy;
-      _altitud = pos.altitude;
-      _ultimaActualizacion = pos.timestamp;
-      _error = null;
-    });
-  }
-
-  double get _velocidadMostrada {
-    final ms = _velocidadMs * 3.6; // m/s -> km/h
-    return _unidad == _Unit.kmh ? ms : ms * 0.621371;
-  }
-
-  String get _unidadTexto => _unidad == _Unit.kmh ? 'km/h' : 'mph';
-
-  String _formatearHora() {
-    final t = _ultimaActualizacion;
-    if (t == null) return '--:--:--';
-    final l = t.toLocal();
-    return '${l.hour.toString().padLeft(2, '0')}:'
-        '${l.minute.toString().padLeft(2, '0')}:'
-        '${l.second.toString().padLeft(2, '0')}';
-  }
+  bool _permisoCamara = false;
+  bool _permisoUbicacion = false;
 
   @override
-  void dispose() {
-    _sub?.cancel();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _inicializar();
+  }
+
+  Future<void> _inicializar() async {
+    // Permisos de Android necesarios para cámara (escáner QR) y GPS.
+    final camara = await Permission.camera.request();
+    final ubicacion = await Permission.locationWhenInUse.request();
+    if (!mounted) return;
+    setState(() {
+      _permisoCamara = camara.isGranted;
+      _permisoUbicacion = ubicacion.isGranted;
+    });
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFF0B0F14))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (int progress) {
+            if (mounted) setState(() => _cargando = progress < 100);
+          },
+          onWebResourceError: (WebResourceError error) {
+            if (error.isForMainFrame ?? false) {
+              setState(() => _error = 'Sin conexión. Revisa tu internet.');
+            }
+          },
+          onPageFinished: (_) {
+            if (mounted) {
+              setState(() {
+                _cargando = false;
+                _error = null;
+              });
+            }
+          },
+        ),
+      );
+
+    if (Platform.isAndroid) {
+      final androidController =
+          _controller.platform as AndroidWebViewController;
+
+      // La web pide cámara (escáner QR) → conceder al WebView.
+      await androidController.setOnPlatformPermissionRequest((request) async {
+        await request.grant();
+      });
+
+      // La web pide geolocalización → conceder y recordar.
+      await androidController.setGeolocationPermissionsPromptCallbacks(
+        onShowPrompt: (params) async => const GeolocationPermissionsResponse(
+          allow: true,
+          retain: true,
+        ),
+        onHidePrompt: () {},
+      );
+    }
+
+    await _controller.loadRequest(Uri.parse(kAppUrl));
+  }
+
+  Future<bool> _onBack() async {
+    if (await _controller.canGoBack()) {
+      await _controller.goBack();
+      return false;
+    }
+    return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorEstado = _midiendo
-        ? const Color(0xFF00E676)
-        : (_error != null ? Colors.redAccent : Colors.white38);
-
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _onBack() && context.mounted) {
+          // Salir de la app solo si no hay historial.
+          exit(0);
+        }
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Stack(
             children: [
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'VELÓCIMETRO GPS',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 3,
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      _chipUnidad('km/h', _Unit.kmh),
-                      const SizedBox(width: 8),
-                      _chipUnidad('mph', _Unit.mph),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.circle, size: 10, color: colorEstado),
-                  const SizedBox(width: 6),
-                  Text(
-                    _midiendo
-                        ? 'GPS activo'
-                        : (_error != null ? 'Error' : 'Detenido'),
-                    style: TextStyle(color: colorEstado, fontSize: 13),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              // Velocidad principal
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      _velocidadMostrada.toStringAsFixed(0),
-                      style: const TextStyle(
-                        fontSize: 140,
-                        fontWeight: FontWeight.w800,
-                        height: 1,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _unidadTexto,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF00E5FF),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.redAccent),
-                  ),
-                ),
-              const SizedBox(height: 24),
-              // Datos secundarios
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _dato('Precisión',
-                      _precision == null ? '--' : '${_precision!.toStringAsFixed(0)} m'),
-                  _dato('Altitud',
-                      _altitud == null ? '--' : '${_altitud!.toStringAsFixed(0)} m'),
-                  _dato('Hora', _formatearHora()),
-                ],
-              ),
-              const Spacer(),
-              // Botón principal
-              SizedBox(
-                width: double.infinity,
-                height: 68,
-                child: FilledButton.icon(
-                  onPressed: _toggleMedicion,
-                  icon: Icon(_midiendo ? Icons.stop : Icons.play_arrow,
-                      size: 30),
-                  label: Text(
-                    _midiendo ? 'DETENER' : 'INICIAR',
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor:
-                        _midiendo ? Colors.red.shade700 : const Color(0xFF00E5FF),
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                _buildError()
+              else
+                WebViewWidget(controller: _controller),
+              if (!_permisoCamara || !_permisoUbicacion)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Material(
+                    color: Colors.red.shade900,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Text(
+                        !_permisoCamara
+                            ? 'Permiso de cámara denegado: el escáner QR no funcionará'
+                            : 'Permiso de ubicación denegado: el GPS no registrará asistencia',
+                        style: const TextStyle(fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
+              if (_cargando)
+                const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                ),
             ],
           ),
         ),
@@ -271,40 +167,41 @@ class _VelocimetroPageState extends State<VelocimetroPage> {
     );
   }
 
-  Widget _chipUnidad(String texto, _Unit unidad) {
-    final activo = _unidad == unidad;
-    return GestureDetector(
-      onTap: () => setState(() => _unidad = unidad),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: activo ? const Color(0xFF00E5FF) : Colors.white10,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          texto,
-          style: TextStyle(
-            color: activo ? Colors.black : Colors.white70,
-            fontWeight: FontWeight.bold,
-          ),
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wifi_off, size: 64, color: Colors.white38),
+            const SizedBox(height: 16),
+            Text(
+              _error ?? 'No se pudo cargar la aplicación',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'La app necesita acceso a: $kAppUrl',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: Colors.white38),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () {
+                setState(() {
+                  _error = null;
+                  _cargando = true;
+                });
+                _controller.reload();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reintentar'),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _dato(String etiqueta, String valor) {
-    return Column(
-      children: [
-        Text(
-          valor,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          etiqueta,
-          style: const TextStyle(fontSize: 12, color: Colors.white38),
-        ),
-      ],
     );
   }
 }

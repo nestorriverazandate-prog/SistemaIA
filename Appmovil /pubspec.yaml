@@ -1,5 +1,5 @@
-name: velocimetro
-description: "A new Flutter project."
+name: agencia_gerontologica
+description: "Cliente móvil de la Agencia Gerontológica"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -35,6 +35,9 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   geolocator: ^14.0.2
+  webview_flutter: ^4.13.1
+  permission_handler: ^11.4.0
+  webview_flutter_android: ^4.12.0
 
 dev_dependencies:
   flutter_test:
