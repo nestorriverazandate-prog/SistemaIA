@@ -103,7 +103,10 @@ export const api = {
   directorio: () => request('/api/directorio'),
   crearTrabajador: (t) => request('/api/trabajadores', { method: 'POST', body: JSON.stringify(t) }),
   historialPerfil: (id) => request(`/api/perfiles/${id}/historial`),
-  eliminarTrabajador: (id) => request(`/api/trabajadores/${id}`, { method: 'DELETE' })
+  eliminarTrabajador: (id) => request(`/api/trabajadores/${id}`, { method: 'DELETE' }),
+  // Control de asistencia por código QR
+  qrPaciente: (token) => request(`/api/qr/${encodeURIComponent(token)}`),
+  qrCheckin: (body) => request('/api/visitas/qr-checkin', { method: 'POST', body: JSON.stringify(body) })
 };
 
 async function requestBlob(path) {

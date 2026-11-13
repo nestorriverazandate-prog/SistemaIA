@@ -545,7 +545,7 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 });
 
 // ---------- Pacientes ----------
-const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
 const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
 function sinColumnaFaltante(p, errorMsg) {
@@ -560,6 +560,7 @@ function sinColumnaFaltante(p, errorMsg) {
 function sanitizePatient(body) {
   const p = {};
   for (const f of PATIENT_FIELDS) if (body[f] != null) p[f] = String(body[f]).slice(0, 500);
+  if (body.qr_activo != null) p.qr_activo = body.qr_activo === true || body.qr_activo === 'true';
   // El formulario envía "edad"; se guarda en la columna cedula (texto)
   if (body.edad != null && p.cedula == null) {
     const e = Number(body.edad);
@@ -578,6 +579,9 @@ app.post('/api/pacientes', requireUser, async (req, res) => {
   try {
     const p = sanitizePatient(req.body);
     if (!p.nombre || !p.apellido) return res.status(400).json({ error: 'nombre y apellido son requeridos' });
+    // QR único del domicilio: se genera una sola vez y se conserva
+    if (!p.qr_token) p.qr_token = `AGI-${randomBytes(8).toString('hex').toUpperCase()}`;
+    if (p.qr_activo == null) p.qr_activo = true;
 
     let { data, error } = await supabase
       .from('pacientes')
@@ -940,8 +944,15 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     const esPropia = v.trabajador_id === req.user.id;
     if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Sin permiso' });
 
-    const { estado, hora_programada, trabajador_id, duracion_estimada_min, trabajador_estado } = req.body || {};
+    const { estado, hora_programada, trabajador_id, duracion_estimada_min, trabajador_estado, salida_manual } = req.body || {};
     const update = {};
+    // Corrección del directivo: registrar salida olvidada (queda evidencia en eventos)
+    if (salida_manual && puedeVerTodas(req)) {
+      const f = new Date(salida_manual);
+      if (isNaN(f)) return res.status(400).json({ error: 'Fecha de salida inválida' });
+      update.salida_at = f.toISOString();
+      if (v.estado === 'en_curso') update.estado = 'finalizada';
+    }
     if (trabajador_estado && TRABAJADOR_ESTADOS.includes(trabajador_estado) && (puedeVerTodas(req) || esPropia)) {
       if (await checkTrabajadorEstado()) update.trabajador_estado = trabajador_estado;
     }
@@ -960,6 +971,7 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     const { data, error } = await supabase.from('visitas').update(update).eq('id', v.id).select().single();
     if (error) throw error;
     if (update.estado === 'cancelada') await logEvento(v.id, 'cancelada', { por: req.user.email });
+    if (salida_manual) await logEvento(v.id, 'correccion_salida', { por: req.user.email, salida_manual: update.salida_at, evidencia: 'registrada manualmente por el directivo' });
     res.json({ visita: data });
   } catch (e) {
     console.error('PATCH visita:', e);
@@ -1051,6 +1063,135 @@ app.post('/api/visitas/:id/ping', requireUser, async (req, res) => {
   } catch (e) {
     console.error('ping:', e);
     res.status(500).json({ error: 'Error al registrar ubicación' });
+  }
+});
+
+// ---------- Registro de visita por código QR ----------
+
+// Consulta ligera del domicilio al escanear (sin datos sensibles)
+app.get('/api/qr/:token', requireUser, async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim().toUpperCase();
+    const { data: pac } = await supabase
+      .from('pacientes')
+      .select('id, nombre, apellido, direccion, lat, lng')
+      .eq('qr_token', token)
+      .maybeSingle();
+    if (!pac || pac.qr_activo === false) {
+      return res.status(404).json({ error: 'Código QR inválido o desactivado' });
+    }
+    // Visita relevante para ESTE trabajador (nadie registra a nombre de otro)
+    const { data: visitas } = await supabase
+      .from('visitas')
+      .select('id, estado, fecha, hora_programada, paciente_id, trabajador_id, llegada_at, salida_at, radio_m')
+      .eq('paciente_id', pac.id)
+      .eq('trabajador_id', req.user.id)
+      .in('estado', ['programada', 'en_curso'])
+      .order('fecha', { ascending: false })
+      .limit(1);
+    const v = (visitas || [])[0] || null;
+    res.json({
+      domicilio: { paciente_id: pac.id, nombre: `${pac.nombre || ''} ${pac.apellido || ''}`.trim(), direccion: pac.direccion, lat: pac.lat, lng: pac.lng },
+      visita: v
+    });
+  } catch (e) {
+    console.error('GET /api/qr:', e);
+    res.status(500).json({ error: 'Error al consultar el código' });
+  }
+});
+
+// Check-in / check-out por QR + GPS
+app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
+  try {
+    const { token, lat, lng, precision } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'token requerido' });
+
+    const tk = String(token).trim().toUpperCase();
+    const { data: pac } = await supabase
+      .from('pacientes')
+      .select('id, nombre, apellido, direccion, lat, lng')
+      .eq('qr_token', tk)
+      .maybeSingle();
+    if (!pac || pac.qr_activo === false) {
+      return res.status(404).json({ error: 'Código QR inválido o desactivado' });
+    }
+
+    // Solo la visita asignada a ESTE trabajador puede cerrarse por QR
+    const { data: candidatas } = await supabase
+      .from('visitas')
+      .select('*')
+      .eq('paciente_id', pac.id)
+      .eq('trabajador_id', req.user.id)
+      .in('estado', ['programada', 'en_curso'])
+      .order('fecha', { ascending: false })
+      .limit(1);
+    const v = (candidatas || [])[0];
+    if (!v) {
+      return res.status(403).json({ error: 'No tienes una visita asignada a este domicilio' });
+    }
+
+    const ahora = new Date();
+    const tieneGps = lat != null && lng != null;
+    const la = tieneGps ? Number(lat) : null;
+    const ln = tieneGps ? Number(lng) : null;
+    let distancia = null, dentro = null;
+    if (tieneGps && pac.lat != null && pac.lng != null) {
+      distancia = Math.round(distanciaM(la, ln, pac.lat, pac.lng));
+      dentro = distancia <= (v.radio_m || 100);
+    }
+    const gpsValido = dentro === true;
+
+    const esSalida = !!(v.llegada_at && !v.salida_at);
+    const update = { ultima_ping_at: ahora.toISOString() };
+    const extra = { fuente: 'qr', gps_valido: gpsValido, ...(precision != null ? { precision_m: Math.round(Number(precision)) } : {}) };
+
+    if (esSalida) {
+      update.salida_at = ahora.toISOString();
+      update.salida_lat = la; update.salida_lng = ln;
+      update.estado = 'finalizada';
+      update.checkin_source = 'qr';
+      update.gps_precision = precision != null ? Number(precision) : null;
+      update.gps_valido = gpsValido;
+    } else {
+      update.llegada_at = ahora.toISOString();
+      update.llegada_lat = la; update.llegada_lng = ln;
+      update.ultima_dentro_at = ahora.toISOString();
+      update.estado = 'en_curso';
+      update.checkin_source = 'qr';
+      update.gps_precision = precision != null ? Number(precision) : null;
+      update.gps_valido = gpsValido;
+    }
+
+    // Si la BD aún no tiene las columnas QR, reintenta sin ellas
+    let nv = null, error = null, payload = update;
+    for (let i = 0; i < 10; i++) {
+      ({ data: nv, error } = await supabase.from('visitas').update(payload).eq('id', v.id).select().single());
+      if (!error) break;
+      if (!/does not exist/i.test(error.message)) break;
+      const reducido = sinColumnaReportada(payload, error.message);
+      if (JSON.stringify(reducido) === JSON.stringify(payload)) break;
+      payload = reducido;
+    }
+    if (error) throw error;
+
+    const quien = req.user.email;
+    const pacNom = `${pac.nombre || ''} ${pac.apellido || ''}`.trim();
+    const dir = pac.direccion || `${pac.lat},${pac.lng}`;
+    const notaGps = !tieneGps ? ' — GPS no disponible, pendiente de validación' : gpsValido ? '' : ` — fuera del radio (${distancia} m), pendiente de validación`;
+
+    if (esSalida) {
+      const durMin = Math.round((ahora - new Date(v.llegada_at)) / 60000);
+      await logEvento(v.id, 'salida', { ...extra, lat: la, lng: ln, distancia_m: distancia, duracion_min: durMin });
+      await notifyAdmins('salida', `${quien} ha finalizado su visita en el domicilio de ${pacNom} (${dir}) a las ${ahora.toTimeString().slice(0, 5)}. Tiempo de permanencia: ${durMin} min${notaGps}`, nv, { trabajador: quien, paciente: pacNom, direccion: dir, duracion_min: durMin, gps_valido: gpsValido });
+      res.json({ tipo: 'salida', estado: nv.estado, duracion_min: durMin, gps_valido: gpsValido, distancia_m: distancia });
+    } else {
+      await logEvento(v.id, 'llegada', { ...extra, lat: la, lng: ln, distancia_m: distancia });
+      await notifyAdmins('llegada', `${quien} ha registrado su llegada al domicilio de ${pacNom} (${dir}) a las ${ahora.toTimeString().slice(0, 5)}${notaGps}`, nv, { trabajador: quien, paciente: pacNom, direccion: dir, lat: la, lng: ln, distancia_m: distancia, gps_valido: gpsValido });
+      res.json({ tipo: 'llegada', estado: nv.estado, gps_valido: gpsValido, distancia_m: distancia });
+    }
+  } catch (e) {
+    console.error('qr-checkin:', e);
+    res.status(500).json({ error: 'Error al registrar la visita' });
   }
 });
 

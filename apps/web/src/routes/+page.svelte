@@ -1,6 +1,7 @@
 <script>
  import { onMount } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
+ import QRCode from 'qrcode';
  import { env } from '$env/dynamic/public';
 
  let user = $state(null); // { email } si hay sesión
@@ -278,6 +279,44 @@
  editandoId = null;
  form = { ...formVacio };
  formError = ''; formOk = '';
+ }
+
+ // Código QR del domicilio
+ let qrModal = $state(null);   // paciente con QR abierto
+ let qrImg = $state('');
+ let qrToken = $state('');
+
+ async function abrirQR(p) {
+ formError = ''; formOk = '';
+ let token = p.qr_token;
+ if (!token) {
+ // Paciente anterior al módulo QR: generar token único y guardarlo
+ token = `AGI-${crypto.randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
+ try {
+ const { paciente } = await api.actualizarPaciente(p.id, { qr_token: token });
+ const idx = pacientes.findIndex((x) => x.id === p.id);
+ if (idx >= 0) pacientes[idx] = paciente;
+ } catch (e) { formError = e.message; return; }
+ }
+ qrToken = token;
+ qrImg = await QRCode.toDataURL(token, { width: 320, margin: 2 });
+ qrModal = p;
+ }
+ function cerrarQR() { qrModal = null; qrImg = ''; qrToken = ''; }
+ function descargarQR() {
+ const a = document.createElement('a');
+ a.href = qrImg; a.download = `qr-domicilio-${qrModal?.id || 'paciente'}.png`; a.click();
+ }
+ function imprimirQR() {
+ const w = window.open('', '_blank', 'width=480,height=640');
+ w.document.write(`<html><head><title>QR domicilio</title>
+ <style>body{font-family:system-ui;text-align:center;padding:24px}img{width:280px}h2{color:#234}p{color:#567;font-size:13px}</style></head>
+ <body><img src="/logo.png" style="height:64px" alt="Agencia Gerontológica Integral"/>
+ <h2>Agencia Gerontológica Integral</h2>
+ <img src="${qrImg}" alt="QR"/><p><strong>${qrModal?.nombre || ''} ${qrModal?.apellido || ''}</strong><br>ID: ${qrToken}</p>
+ <p>Código de identificación del domicilio. Exclusivo para el registro de visitas del personal autorizado.</p>
+ <script>window.onload=()=>window.print()<\/script></body></html>`);
+ w.document.close();
  }
 
  async function eliminar(p) {
@@ -579,6 +618,7 @@
  </td>
  <td class="acciones">
  <button class="mini" onclick={() => editar(p)}>Editar</button>
+ <button class="mini" onclick={() => abrirQR(p)}>QR</button>
  <button class="mini danger" onclick={() => eliminar(p)}>Eliminar</button>
  </td>
  </tr>
@@ -654,6 +694,24 @@
  </section>
  {/if}
  </main>
+
+ {#if qrModal}
+ <div class="qr-overlay" onclick={cerrarQR} role="presentation">
+ <div class="qr-sheet" onclick={(e) => e.stopPropagation()}>
+ <img class="qr-logo" src="/logo.png" alt="Agencia Gerontológica Integral" />
+ <h3>Código QR del domicilio</h3>
+ <p class="muted">{qrModal.nombre} {qrModal.apellido}</p>
+ {#if qrImg}<img class="qr-img" src={qrImg} alt="Código QR" />{/if}
+ <p class="qr-id">ID: {qrToken}</p>
+ <p class="muted small">Código de identificación del domicilio. Exclusivo para el registro de visitas del personal autorizado.</p>
+ <div class="btns">
+ <button class="mini" onclick={descargarQR}>Descargar PNG</button>
+ <button class="mini" onclick={imprimirQR}>Imprimir / PDF</button>
+ <button class="mini ghost" onclick={cerrarQR}>Cerrar</button>
+ </div>
+ </div>
+ </div>
+ {/if}
 {:else}
  <!-- ===== Panel del empleado ===== -->
  <header>
@@ -666,6 +724,7 @@
  </div>
  <div>
  <span class="badge">{perfil.email} · empleado</span>
+ <a class="ghost link" href="/registrar">Registrar visita</a>
  <a class="ghost link" href="/visitas">Mis visitas</a>
  <button class="ghost" onclick={logout}>Salir</button>
  </div>
@@ -793,6 +852,11 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
 .contacto-card { border: 1px solid oklch(0.9 0.03 140); border-radius: 10px; padding: .6rem .8rem; margin-bottom: .6rem; background: #fff; }
 .check { display: flex; align-items: center; gap: .4rem; font-weight: 500; }
 .historial { font-size: .82rem; margin-top: .5rem; }
+.qr-overlay { position: fixed; inset: 0; background: oklch(0.2 0.03 260 / .45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+.qr-sheet { background: #fff; border-radius: 16px; padding: 1.5rem; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 10px 40px oklch(0.2 0.03 260 / .3); }
+.qr-logo { height: 56px; }
+.qr-img { width: 240px; height: 240px; image-rendering: pixelated; margin: .8rem auto; display: block; }
+.qr-id { font-family: monospace; font-size: .8rem; color: oklch(0.5 0.03 85); word-break: break-all; }
  label { display: flex; flex-direction: column; gap:.25rem; font-size:.85rem; font-weight: 600; }
  input, textarea, select { padding:.55rem.65rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
  button { padding:.6rem 1rem; border: 0; border-radius: 8px; background: oklch(0.42 0.068 218); color: #f2eee2; font-weight: 600; cursor: pointer; }
