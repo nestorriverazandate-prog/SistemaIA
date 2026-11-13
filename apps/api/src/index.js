@@ -975,8 +975,8 @@ app.post('/api/notificaciones/leer-todas', requireUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Monitor de retrasos / no-show / tiempo excedido (cada 60s) ----------
-setInterval(async () => {
+// ---------- Monitor de retrasos / no-show / tiempo excedido ----------
+async function monitorVisitas() {
   try {
     const hoy = new Date().toISOString().slice(0, 10);
     const ahora = new Date();
@@ -1007,7 +1007,16 @@ setInterval(async () => {
   } catch (e) {
     console.error('monitor visitas:', e);
   }
-}, 60 * 1000);
+}
+
+// En Vercel el setInterval no corre entre invocaciones: se ejecuta vía cron
+app.post('/api/cron/monitor', async (req, res) => {
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  await monitorVisitas();
+  res.json({ ok: true });
+});
 
 // ---------- Google Drive: un solo documento ----------
 async function appendToDriveDoc(p) {
@@ -1186,5 +1195,6 @@ export default app;
 // Solo escuchar en ejecución local (node src/index.js); en Vercel se exporta como función
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
+  setInterval(monitorVisitas, 60 * 1000);
   app.listen(PORT, () => console.log(`Servidor único en http://localhost:${PORT} (API + frontend)`));
 }
