@@ -294,6 +294,10 @@
  token = `AGI-${crypto.randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
  try {
  const { paciente } = await api.actualizarPaciente(p.id, { qr_token: token });
+ if (!paciente.qr_token) {
+ formError = 'El QR no se pudo guardar: falta ejecutar supabase/TODO-EN-UNO.sql en Supabase';
+ return;
+ }
  const idx = pacientes.findIndex((x) => x.id === p.id);
  if (idx >= 0) pacientes[idx] = paciente;
  } catch (e) { formError = e.message; return; }
@@ -309,14 +313,17 @@
  generandoQRs = true;
  try {
  // Asegurar token en cada paciente (los antiguos se generan y guardan)
+ let sinGuardar = 0;
  for (const p of pacientes) {
  if (!p.qr_token) {
  const token = `AGI-${crypto.randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
  const { paciente } = await api.actualizarPaciente(p.id, { qr_token: token });
+ if (!paciente.qr_token) { sinGuardar++; continue; }
  const idx = pacientes.findIndex((x) => x.id === p.id);
  if (idx >= 0) pacientes[idx] = paciente;
  }
  }
+ if (sinGuardar) formError = `${sinGuardar} paciente(s) sin QR guardado: ejecuta supabase/TODO-EN-UNO.sql en Supabase`;
  const items = [];
  for (const p of pacientes) {
  if (!p.qr_token) continue;

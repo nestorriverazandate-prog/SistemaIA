@@ -1085,11 +1085,19 @@ app.post('/api/visitas/:id/ping', requireUser, async (req, res) => {
 app.get('/api/qr/:token', requireUser, async (req, res) => {
   try {
     const token = String(req.params.token || '').trim().toUpperCase();
-    const { data: pac, error: errPac } = await supabase
+    let { data: pac, error: errPac } = await supabase
       .from('pacientes')
-      .select('id, nombre, apellido, direccion, lat, lng, qr_activo')
+      .select('id, nombre, apellido, cedula, telefono, tipo_servicio, contacto_emergencia, telefono_emergencia, direccion, lat, lng, qr_activo')
       .eq('qr_token', token)
       .maybeSingle();
+    // Si faltan columnas opcionales en la BD, reintenta con las básicas
+    if (errPac && /column|Could not find|schema cache/i.test(errPac.message)) {
+      ({ data: pac, error: errPac } = await supabase
+        .from('pacientes')
+        .select('id, nombre, apellido, direccion, lat, lng, qr_activo')
+        .eq('qr_token', token)
+        .maybeSingle());
+    }
     if (errPac) return res.status(503).json({ error: 'El módulo QR aún no está activado en la base de datos' });
     if (!pac || pac.qr_activo === false) {
       return res.status(404).json({ error: 'Código QR inválido o desactivado' });
@@ -1105,7 +1113,16 @@ app.get('/api/qr/:token', requireUser, async (req, res) => {
       .limit(1);
     const v = (visitas || [])[0] || null;
     res.json({
-      domicilio: { paciente_id: pac.id, nombre: `${pac.nombre || ''} ${pac.apellido || ''}`.trim(), direccion: pac.direccion, lat: pac.lat, lng: pac.lng },
+      domicilio: {
+        paciente_id: pac.id,
+        nombre: `${pac.nombre || ''} ${pac.apellido || ''}`.trim(),
+        edad: pac.cedula || null,
+        telefono: pac.telefono || null,
+        tipo_servicio: pac.tipo_servicio || null,
+        contacto_emergencia: pac.contacto_emergencia || null,
+        telefono_emergencia: pac.telefono_emergencia || null,
+        direccion: pac.direccion, lat: pac.lat, lng: pac.lng
+      },
       visita: v
     });
   } catch (e) {
@@ -1117,7 +1134,7 @@ app.get('/api/qr/:token', requireUser, async (req, res) => {
 // Check-in / check-out por QR + GPS
 app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
   try {
-    const { token, lat, lng, precision } = req.body || {};
+    const { token, lat, lng, precision, sesion, especialidad } = req.body || {};
     if (!token) return res.status(400).json({ error: 'token requerido' });
 
     const tk = String(token).trim().toUpperCase();
@@ -1158,7 +1175,12 @@ app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
 
     const esSalida = !!(v.llegada_at && !v.salida_at);
     const update = { ultima_ping_at: ahora.toISOString() };
-    const extra = { fuente: 'qr', gps_valido: gpsValido, ...(precision != null ? { precision_m: Math.round(Number(precision)) } : {}) };
+    const extra = {
+      fuente: 'qr', gps_valido: gpsValido,
+      ...(sesion ? { sesion: String(sesion).slice(0, 200) } : {}),
+      ...(especialidad ? { especialidad: String(especialidad).slice(0, 200) } : {}),
+      ...(precision != null ? { precision_m: Math.round(Number(precision)) } : {})
+    };
 
     if (esSalida) {
       update.salida_at = ahora.toISOString();
@@ -1198,11 +1220,11 @@ app.post('/api/visitas/qr-checkin', requireUser, async (req, res) => {
       const durMin = Math.round((ahora - new Date(v.llegada_at)) / 60000);
       await logEvento(v.id, 'salida', { ...extra, lat: la, lng: ln, distancia_m: distancia, duracion_min: durMin });
       await notifyAdmins('salida', `${quien} ha finalizado su visita en el domicilio de ${pacNom} (${dir}) a las ${ahora.toTimeString().slice(0, 5)}. Tiempo de permanencia: ${durMin} min${notaGps}`, nv, { trabajador: quien, paciente: pacNom, direccion: dir, duracion_min: durMin, gps_valido: gpsValido });
-      res.json({ tipo: 'salida', estado: nv.estado, duracion_min: durMin, gps_valido: gpsValido, distancia_m: distancia });
+      res.json({ tipo: 'salida', estado: nv.estado, duracion_min: durMin, gps_valido: gpsValido, distancia_m: distancia, sesion: sesion || null });
     } else {
       await logEvento(v.id, 'llegada', { ...extra, lat: la, lng: ln, distancia_m: distancia });
       await notifyAdmins('llegada', `${quien} ha registrado su llegada al domicilio de ${pacNom} (${dir}) a las ${ahora.toTimeString().slice(0, 5)}${notaGps}`, nv, { trabajador: quien, paciente: pacNom, direccion: dir, lat: la, lng: ln, distancia_m: distancia, gps_valido: gpsValido });
-      res.json({ tipo: 'llegada', estado: nv.estado, gps_valido: gpsValido, distancia_m: distancia });
+      res.json({ tipo: 'llegada', estado: nv.estado, gps_valido: gpsValido, distancia_m: distancia, sesion: sesion || null });
     }
   } catch (e) {
     console.error('qr-checkin:', e);

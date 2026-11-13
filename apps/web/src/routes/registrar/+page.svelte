@@ -14,6 +14,10 @@
  let resultado = $state(null);
  let error = $state('');
  let tokenManual = $state('');
+ let sesion = $state('');
+ let especialidad = $state('');
+
+ const SESIONES = ['Atención general', 'Higiene y cuidado personal', 'Compañía y estimulación', 'Alimentación', 'Rehabilitación / ejercicios', 'Signos vitales y medicación', 'Otro'];
 
  const esSalida = $derived(!!(visita?.llegada_at && !visita?.salida_at));
 
@@ -84,6 +88,8 @@
  const gps = await obtenerGps();
  const body = { token: tokenActual };
  if (gps) { body.lat = gps.lat; body.lng = gps.lng; body.precision = gps.precision; }
+ if (sesion) body.sesion = sesion;
+ if (especialidad) body.especialidad = especialidad;
  const r = await api.qrCheckin(body);
  resultado = r;
  } catch (e) {
@@ -97,7 +103,7 @@
 
  onMount(async () => {
  if (!getToken()) { loading = false; return; }
- try { const { user: me } = await api.me(); perfil = me.perfil; }
+ try { const { user: me } = await api.me(); perfil = me.perfil; especialidad = me.perfil?.especialidad || ''; }
  catch { setToken(null); }
  loading = false;
  });
@@ -141,16 +147,35 @@
  </div>
  {:else if domicilio}
  <h2>{domicilio.nombre}</h2>
- <p class="muted">{domicilio.direccion || 'Sin dirección registrada'}</p>
+ <div class="paciente-card">
+ <p><strong>Edad:</strong> {domicilio.edad ? domicilio.edad + ' años' : '—'}</p>
+ <p><strong>Dirección:</strong> {domicilio.direccion || 'Sin dirección registrada'}</p>
+ <p><strong>Teléfono:</strong> {domicilio.telefono || '—'}</p>
+ <p><strong>Servicio:</strong> {domicilio.tipo_servicio || '—'}</p>
+ {#if domicilio.contacto_emergencia}
+ <p><strong>Emergencia:</strong> {domicilio.contacto_emergencia}{domicilio.telefono_emergencia ? ` · ${domicilio.telefono_emergencia}` : ''}</p>
+ {/if}
+ </div>
  {#if visita}
  <p>
  Estado de la visita: <strong>{visita.estado === 'en_curso' ? 'en atención' : 'programada'}</strong>
  {#if visita.hora_programada}· Horario: {visita.hora_programada}{/if}
  </p>
+ <div class="sesion-row">
+ <label>Sesión que realizarás
+ <select bind:value={sesion}>
+ <option value="">Seleccionar…</option>
+ {#each SESIONES as s}<option value={s}>{s}</option>{/each}
+ </select>
+ </label>
+ <label>Especialidad
+ <input bind:value={especialidad} placeholder="Ej. enfermería, terapia física" />
+ </label>
+ </div>
  <button class="big-btn" disabled={procesando} onclick={registrar}>
  {procesando ? 'Registrando…' : esSalida ? 'REGISTRAR SALIDA' : 'REGISTRAR ENTRADA'}
  </button>
- <p class="muted small">Se guardará fecha, hora y ubicación GPS del dispositivo.</p>
+ <p class="muted small">Se guardará fecha, hora, ubicación GPS, sesión y especialidad.</p>
  {:else}
  <p class="error">{error || 'No tienes visita asignada a este domicilio.'}</p>
  <button class="ghost" onclick={reiniciar}>Escanear otro código</button>
@@ -204,6 +229,11 @@
  .big-btn:disabled { opacity: .6; cursor: wait; }
  .lector { width: 100%; max-width: 340px; margin: 1rem auto; border-radius: 12px; overflow: hidden; }
  .manual { display: flex; gap: .5rem; align-items: end; margin-top: 1.2rem; border-top: 1px solid oklch(0.92 0.02 85); padding-top: 1rem; }
+ .paciente-card { background: oklch(0.97 0.015 140); border: 1px solid oklch(0.9 0.03 140); border-radius: 10px; padding: .8rem 1rem; margin: .8rem 0; text-align: left; }
+ .paciente-card p { margin: .25rem 0; font-size: .9rem; }
+ .sesion-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: 1rem 0; }
+ .sesion-row label { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; color: oklch(0.45 0.04 85); }
+ .sesion-row select, .sesion-row input { padding: .55rem .65rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
  .manual label { flex: 1; display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; color: oklch(0.45 0.04 85); }
  .manual input { padding: .55rem .65rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
  button { font: inherit; }
