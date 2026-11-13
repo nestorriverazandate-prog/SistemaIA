@@ -10,6 +10,8 @@
 
   let pacientes = $state([]);
   let trabajadores = $state([]);
+  const ETIQUETAS_ROL = { admin: 'Directivo', staff: 'Trabajador', paciente: 'Paciente', familiar: 'Familiar', cuidador: 'Cuidador' };
+  const etiquetaRol = (r) => ETIQUETAS_ROL[r] || r;
   let visitas = $state([]);
   let historial = $state([]);
   let dash = $state(null);
@@ -213,7 +215,7 @@
                   <select bind:value={form.trabajador_id}>
                     <option value="">Sin asignar</option>
                     {#each trabajadores as t (t.id)}
-                      <option value={t.id}>{t.nombre || t.email} ({t.rol})</option>
+                      <option value={t.id}>{t.nombre || t.email} ({etiquetaRol(t.rol)})</option>
                     {/each}
                   </select>
                 </td>

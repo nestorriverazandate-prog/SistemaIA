@@ -40,6 +40,14 @@
  }
 
  const esAdmin = $derived(perfil?.rol === 'admin');
+ const ROLES = [
+ { valor: 'paciente', etiqueta: 'Paciente' },
+ { valor: 'staff', etiqueta: 'Trabajador' },
+ { valor: 'familiar', etiqueta: 'Familiar' },
+ { valor: 'cuidador', etiqueta: 'Cuidador' },
+ { valor: 'admin', etiqueta: 'Directivo' }
+ ];
+ const etiquetaRol = (r) => ROLES.find((x) => x.valor === r)?.etiqueta || r;
  const aprobado = $derived(perfil?.estado === 'aprobado' || esAdmin);
 
  async function entrar(data) {
@@ -498,7 +506,7 @@
  </div>
  </div>
  <div>
- <span class="badge">{perfil.email} · {perfil.rol}</span>
+ <span class="badge">{perfil.email} · {etiquetaRol(perfil.rol)}</span>
  {#if stats}<span class="badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
@@ -603,7 +611,11 @@
  <tr>
  <td>{u.email}</td>
  <td>{u.nombre || '—'}</td>
- <td>{u.rol}</td>
+ <td>
+ <select class="rol-select" value={u.rol} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
+ {#each ROLES as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
+ </select>
+ </td>
  <td><span class="estado estado-{u.estado === 'aprobado'? 'completado': u.estado === 'rechazado'? 'cancelado': 'pendiente'}">{u.estado}</span></td>
  <td class="acciones">
  {#if u.estado!== 'aprobado'}
@@ -611,9 +623,6 @@
  {/if}
  {#if u.estado!== 'rechazado'}
  <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { estado: 'rechazado' })}>Rechazar</button>
- {/if}
- {#if u.rol!== 'admin'}
- <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { rol: 'admin' })}>Hacer admin</button>
  {/if}
  <button class="mini ghost" onclick={() => editarExpediente(u)}>Expediente</button>
  </td>

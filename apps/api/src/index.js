@@ -359,7 +359,7 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
     const update = {};
     if (esAdminUser) {
       if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
-      if (rol && ['admin', 'paciente', 'staff'].includes(rol)) update.rol = rol;
+      if (rol && ['admin', 'paciente', 'staff', 'familiar', 'cuidador'].includes(rol)) update.rol = rol;
       for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
     } else {
       for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
