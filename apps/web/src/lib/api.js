@@ -60,6 +60,10 @@ export const api = {
     request('/api/auth/verificar', { method: 'POST', body: JSON.stringify({ email, codigo }) }),
   reenviarCodigo: (email) =>
     request('/api/auth/reenviar', { method: 'POST', body: JSON.stringify({ email }) }),
+  recuperar: (email) =>
+    request('/api/auth/recuperar', { method: 'POST', body: JSON.stringify({ email }) }),
+  restablecer: (email, codigo, password) =>
+    request('/api/auth/restablecer', { method: 'POST', body: JSON.stringify({ email, codigo, password }) }),
   me: () => request('/api/me'),
   perfiles: (estado) => request(`/api/perfiles${estado ? `?estado=${estado}` : ''}`),
   actualizarPerfil: (id, body) =>
@@ -81,14 +85,20 @@ export const api = {
   crearVisita: (v) => request('/api/visitas', { method: 'POST', body: JSON.stringify(v) }),
   actualizarVisita: (id, body) =>
     request(`/api/visitas/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  pingVisita: (id, lat, lng) =>
-    request(`/api/visitas/${id}/ping`, { method: 'POST', body: JSON.stringify({ lat, lng }) }),
+  pingVisita: (id, lat, lng, trabajador_estado) =>
+    request(`/api/visitas/${id}/ping`, { method: 'POST', body: JSON.stringify({ lat, lng, trabajador_estado }) }),
   historial: (params = '') => request(`/api/visitas/historial${params}`),
   exportarVisitas: (params = '') => requestBlob(`/api/visitas/export${params}`),
   dashboard: () => request('/api/dashboard'),
   notificaciones: (noLeidas) => request(`/api/notificaciones${noLeidas ? '?no_leidas=1' : ''}`),
   leerNotificacion: (id) => request(`/api/notificaciones/${id}/leida`, { method: 'POST' }),
-  leerTodas: () => request('/api/notificaciones/leer-todas', { method: 'POST' })
+  leerTodas: () => request('/api/notificaciones/leer-todas', { method: 'POST' }),
+  notaVisita: (id, campos) => request(`/api/visitas/${id}/nota`, { method: 'POST', body: JSON.stringify(campos) }),
+  notasVisita: (id) => request(`/api/visitas/${id}/notas`),
+  incidenciaGps: (id, descripcion) => request(`/api/visitas/${id}/incidencia-gps`, { method: 'POST', body: JSON.stringify({ descripcion }) }),
+  paquetes: () => request('/api/paquetes'),
+  crearPaquete: (p) => request('/api/paquetes', { method: 'POST', body: JSON.stringify(p) }),
+  actualizarPaquete: (id, p) => request(`/api/paquetes/${id}`, { method: 'PATCH', body: JSON.stringify(p) })
 };
 
 async function requestBlob(path) {

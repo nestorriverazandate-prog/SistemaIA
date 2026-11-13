@@ -216,6 +216,11 @@
         loading = false;
         return;
       }
+      if (!['admin', 'staff'].includes(user.perfil.rol)) {
+        error = 'El mapa de monitoreo es solo para directivo/staff';
+        loading = false;
+        return;
+      }
     } catch {
       error = 'Sesión inválida';
       loading = false;
@@ -260,9 +265,11 @@
 
     await cargar();
     await cargarDatos();
-    pollTimer = setInterval(cargarDatos, 20000); // actualización cada 20s
+    pollTimer = setInterval(cargarDatos, 20000); // respaldo; el SSE actualiza al instante
+    const es = new EventSource('/api/eventos');
+    es.onmessage = (e) => { try { if (JSON.parse(e.data).tipo === 'notificacion') cargarDatos(); } catch {} };
 
-    return () => { if (map) map.remove(); if (pollTimer) clearInterval(pollTimer); window.removeEventListener('pageshow', onPageShow); };
+    return () => { if (map) map.remove(); if (pollTimer) clearInterval(pollTimer); es.close(); window.removeEventListener('pageshow', onPageShow); };
   });
 </script>
 

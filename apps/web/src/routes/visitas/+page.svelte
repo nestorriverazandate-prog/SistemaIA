@@ -25,6 +25,10 @@
   let pingTimer = $state(null);
   let visitandoId = $state(null);
   let gpsMsg = $state('');
+  let trabajadorEstado = $state('en_camino');
+  let notaId = $state(null);
+  let notaForm = $state({ actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '' });
+  let notaMsg = $state('');
 
   const esAdmin = $derived(me?.perfil?.rol === 'admin' || me?.perfil?.rol === 'staff');
 
@@ -64,7 +68,7 @@
     watchId = navigator.geolocation.watchPosition(
       async (pos) => {
         try {
-          const r = await api.pingVisita(v.id, pos.coords.latitude, pos.coords.longitude);
+          const r = await api.pingVisita(v.id, pos.coords.latitude, pos.coords.longitude, trabajadorEstado);
           gpsMsg = `Distancia: ${r.distancia_m} m — ${r.dentro ? 'DENTRO de la geocerca' : 'fuera'} — ${r.estado}`;
           await cargar();
         } catch (e) { gpsMsg = e.message; }
@@ -80,6 +84,33 @@
     if (pingTimer) clearInterval(pingTimer);
     watchId = null; pingTimer = null; visitandoId = null;
     gpsMsg = '';
+    trabajadorEstado = 'en_camino';
+  }
+
+  function mapaDomicilio(v) {
+    const p = v.pacientes;
+    if (p?.lat == null) return '#';
+    return `https://www.google.com/maps?q=${p.lat},${p.lng}`;
+  }
+
+  async function guardarNota(v) {
+    error = ''; notaMsg = '';
+    try {
+      await api.notaVisita(v.id, notaForm);
+      notaMsg = 'Nota de atención guardada en el expediente';
+      notaId = null;
+      notaForm = { actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '' };
+    } catch (e) { error = e.message; }
+  }
+
+  async function reportarGps(v) {
+    const d = prompt('Describe el problema con tu GPS (ej: sin señal, GPS apagado, batería):');
+    if (!d) return;
+    error = ''; msg = '';
+    try {
+      await api.incidenciaGps(v.id, d);
+      msg = 'Incidencia reportada. El directivo fue notificado.';
+    } catch (e) { error = e.message; }
   }
 
   async function exportar() {
@@ -247,16 +278,39 @@
       {#each visitas as v (v.id)}
         <section class="card">
           <h2>{v.pacientes?.nombre} {v.pacientes?.apellido}</h2>
-          <p class="muted">{v.pacientes?.direccion || 'Sin dirección'}<br />
-          Programada: {v.hora_programada || '—'} · Estado: <span class="estado estado-{v.estado}">{v.estado.replace('_', ' ')}</span></p>
+          <p class="muted">{v.pacientes?.direccion || 'Sin dirección'}
+          {#if v.pacientes?.telefono}<br />Tel. contacto: {v.pacientes.telefono}{/if}
+          {#if v.pacientes?.lat != null} · <a href={mapaDomicilio(v)} target="_blank" rel="noopener">Ver domicilio en mapa</a>{/if}<br />
+          Programada: {v.hora_programada || '—'} · Duración est.: {v.duracion_estimada_min || '—'} min · Estado: <span class="estado estado-{v.estado}">{v.trabajador_estado || v.estado.replace('_', ' ')}</span></p>
           {#if v.llegada_at}<p class="ok">Llegada: {new Date(v.llegada_at).toLocaleTimeString()}</p>{/if}
           {#if v.salida_at}<p>Llegada→Salida: {Math.round((new Date(v.salida_at) - new Date(v.llegada_at)) / 60000)} min</p>{/if}
           {#if ['programada', 'en_curso'].includes(v.estado)}
             {#if visitandoId === v.id}
-              <button class="danger" onclick={detenerSeguimiento}>Detener seguimiento</button>
+              <div class="estado-btns">
+                <button class="mini {trabajadorEstado === 'en_camino' ? 'active' : 'ghost'}" onclick={() => (trabajadorEstado = 'en_camino')}>En camino</button>
+                <button class="mini {trabajadorEstado === 'en_domicilio' ? 'active' : 'ghost'}" onclick={() => (trabajadorEstado = 'en_domicilio')}>En domicilio</button>
+                <button class="mini {trabajadorEstado === 'descanso' ? 'active' : 'ghost'}" onclick={() => (trabajadorEstado = 'descanso')}>Descanso</button>
+                <button class="mini danger" onclick={detenerSeguimiento}>Detener</button>
+              </div>
             {:else}
               <button onclick={() => iniciarSeguimiento(v)}>Iniciar seguimiento GPS</button>
             {/if}
+          {/if}
+          <div class="acc-actions">
+            <button class="mini ghost" onclick={() => { notaId = notaId === v.id ? null : v.id; notaMsg = ''; }}>Nota de atención</button>
+            <button class="mini ghost" onclick={() => reportarGps(v)}>GPS con falla</button>
+          </div>
+          {#if notaId === v.id}
+            <div class="nota-form">
+              <label>Actividades realizadas <textarea rows="2" bind:value={notaForm.actividades}></textarea></label>
+              <label>Observaciones <textarea rows="2" bind:value={notaForm.observaciones}></textarea></label>
+              <label>Evolución <textarea rows="2" bind:value={notaForm.evolucion}></textarea></label>
+              <label>Incidencias <textarea rows="2" bind:value={notaForm.incidencias}></textarea></label>
+              <label>Recomendaciones <textarea rows="2" bind:value={notaForm.recomendaciones}></textarea></label>
+              <label>Material utilizado <input bind:value={notaForm.material} /></label>
+              {#if notaMsg}<p class="ok">{notaMsg}</p>{/if}
+              <button onclick={() => guardarNota(v)}>Guardar nota</button>
+            </div>
           {/if}
         </section>
       {:else}
@@ -292,6 +346,12 @@
   button:hover:not(:disabled) { background: #004555; }
   button.danger { background: oklch(0.55 0.2 27); }
   button.mini { padding: .25rem .6rem; font-size: .78rem; }
+  .estado-btns { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+  .estado-btns .mini.active { background: #135666; color: #f2eee2; border-color: #135666; }
+  .acc-actions { display: flex; gap: .4rem; margin-top: .5rem; }
+  .nota-form { display: flex; flex-direction: column; gap: .5rem; margin-top: .7rem; border-top: 1px solid oklch(0.93 0.025 140); padding-top: .7rem; }
+  .nota-form label { font-size: .8rem; }
+  .nota-form textarea, .nota-form input { padding: .45rem .55rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
   a.ghost, button.ghost { background: transparent; color: inherit; border: 1px solid oklch(0.45 0.03 225); border-radius: 8px; padding: .45rem .8rem; text-decoration: none; font-weight: 600; font-size: .85rem; cursor: pointer; }
   header a.ghost { color: #f2eee2; border-color: oklch(0.55 0.05 222); }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .7rem; }

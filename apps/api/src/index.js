@@ -345,13 +345,25 @@ app.get('/api/perfiles', requireUser, async (req, res) => {
   }
 });
 
+// Campos del expediente laboral (columnas nuevas en perfiles)
+const PERFIL_EXPEDIENTE = ['telefono', 'domicilio', 'profesion', 'especialidad', 'id_laboral', 'fecha_contratacion', 'estado_laboral'];
+
 app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
   try {
+    const esPropio = req.params.id === req.user.id;
+    const esAdminUser = isAdmin(req);
+    // El empleado solo puede editar sus datos de contacto; el resto es del directivo
+    if (!esAdminUser && !esPropio) return res.status(403).json({ error: 'Sin permiso' });
+
     const { estado, rol } = req.body || {};
     const update = {};
-    if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
-    if (rol && ['admin', 'paciente', 'staff'].includes(rol)) update.rol = rol;
+    if (esAdminUser) {
+      if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
+      if (rol && ['admin', 'paciente', 'staff'].includes(rol)) update.rol = rol;
+      for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
+    } else {
+      for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
+    }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
     const { data, error } = await supabase
       .from('perfiles')
@@ -387,7 +399,7 @@ function sanitizePatient(body) {
 }
 
 app.post('/api/pacientes', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede registrar pacientes' });
   try {
     const p = sanitizePatient(req.body);
     if (!p.nombre || !p.apellido) return res.status(400).json({ error: 'nombre y apellido son requeridos' });
@@ -425,6 +437,13 @@ app.get('/api/pacientes', requireUser, async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(500);
     if (error) throw error;
+    // El empleado solo ve pacientes que tienen asignados en visitas
+    if (!isAdmin(req)) {
+      const { data: misVisitas } = await supabase
+        .from('visitas').select('paciente_id').eq('trabajador_id', req.user.id);
+      const ids = new Set((misVisitas || []).map((v) => v.paciente_id));
+      return res.json({ pacientes: (data || []).filter((p) => ids.has(p.id)) });
+    }
     res.json({ pacientes: data });
   } catch (e) {
     console.error('GET /api/pacientes:', e);
@@ -433,7 +452,7 @@ app.get('/api/pacientes', requireUser, async (req, res) => {
 });
 
 app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede modificar pacientes' });
   try {
     const update = sanitizePatient(req.body);
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
@@ -461,7 +480,7 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
 });
 
 app.delete('/api/pacientes/:id', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede eliminar pacientes' });
   try {
     const { error } = await supabase
       .from('pacientes')
@@ -476,7 +495,7 @@ app.delete('/api/pacientes/:id', requireUser, async (req, res) => {
 });
 
 app.patch('/api/pacientes/:id/estado', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede cambiar estados' });
   try {
     const { estado } = req.body || {};
     if (!['pendiente', 'en_proceso', 'completado', 'cancelado'].includes(estado)) {
@@ -498,7 +517,7 @@ app.patch('/api/pacientes/:id/estado', requireUser, async (req, res) => {
 
 // ---------- Geocercas ----------
 app.get('/api/geocercas', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!puedeVerTodas(req)) return res.status(403).json({ error: 'Solo directivo/staff' });
   try {
     const { data, error } = await supabase
       .from('geocercas')
@@ -513,7 +532,7 @@ app.get('/api/geocercas', requireUser, async (req, res) => {
 });
 
 app.post('/api/geocercas', requireUser, async (req, res) => {
-  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
+  if (!puedeVerTodas(req)) return res.status(403).json({ error: 'Solo directivo/staff' });
   try {
     const { nombre, tipo = 'circulo', centro_lat, centro_lng, radio_m, geojson } = req.body || {};
     if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
@@ -701,7 +720,7 @@ app.get('/api/visitas', requireUser, async (req, res) => {
   try {
     let q = supabase
       .from('visitas')
-      .select('*, pacientes(nombre, apellido, direccion, lat, lng), perfiles!visitas_trabajador_id_fkey(nombre, email)')
+      .select('*, pacientes(nombre, apellido, direccion, lat, lng, telefono), perfiles!visitas_trabajador_id_fkey(nombre, email)')
       .order('fecha', { ascending: false })
       .order('hora_programada', { ascending: true })
       .limit(300);
@@ -1002,6 +1021,157 @@ async function appendToDriveDoc(p) {
     }
   });
 }
+
+// ---------- Notas de atención del empleado ----------
+app.post('/api/visitas/:id/nota', requireUser, async (req, res) => {
+  try {
+    const { data: v } = await supabase.from('visitas').select('*').eq('id', req.params.id).maybeSingle();
+    if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
+    const esPropia = v.trabajador_id === req.user.id;
+    if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Solo el trabajador asignado' });
+    const campos = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material'];
+    const nota = {};
+    for (const c of campos) if (req.body[c] != null) nota[c] = String(req.body[c]).slice(0, 4000);
+    if (!Object.keys(nota).length) return res.status(400).json({ error: 'Escribe al menos un campo' });
+    const { data, error } = await supabase.from('notas_atencion').insert({
+      visita_id: v.id, paciente_id: v.paciente_id, trabajador_id: req.user.id, ...nota
+    }).select().single();
+    if (error) throw error;
+    await logEvento(v.id, 'nota_atencion', { por: req.user.email });
+    res.status(201).json({ nota: data });
+  } catch (e) {
+    console.error('POST nota:', e);
+    res.status(500).json({ error: 'Error al guardar nota' });
+  }
+});
+
+app.get('/api/visitas/:id/notas', requireUser, async (req, res) => {
+  try {
+    const { data: v } = await supabase.from('visitas').select('trabajador_id').eq('id', req.params.id).maybeSingle();
+    if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
+    if (v.trabajador_id !== req.user.id && !puedeVerTodas(req)) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.from('notas_atencion').select('*').eq('visita_id', req.params.id).order('created_at');
+    if (error) throw error;
+    res.json({ notas: data });
+  } catch (e) {
+    console.error('GET notas:', e);
+    res.status(500).json({ error: 'Error al obtener notas' });
+  }
+});
+
+// ---------- Incidencias de GPS reportadas por el trabajador ----------
+app.post('/api/visitas/:id/incidencia-gps', requireUser, async (req, res) => {
+  try {
+    const { data: v } = await supabase.from('visitas').select('*').eq('id', req.params.id).maybeSingle();
+    if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
+    const esPropia = v.trabajador_id === req.user.id;
+    if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Solo el trabajador asignado' });
+    const descripcion = String(req.body?.descripcion || '').slice(0, 1000);
+    const { data, error } = await supabase.from('incidencias_gps').insert({
+      visita_id: v.id, trabajador_id: req.user.id, descripcion
+    }).select().single();
+    if (error) throw error;
+    await logEvento(v.id, 'incidencia_gps', { por: req.user.email, descripcion });
+    await notifyAdmins('incidencia', `${req.user.email} reportó un problema de GPS en una visita`, v, { descripcion });
+    res.status(201).json({ incidencia: data });
+  } catch (e) {
+    console.error('POST incidencia:', e);
+    res.status(500).json({ error: 'Error al reportar incidencia' });
+  }
+});
+
+// ---------- Paquetes / servicios gerontológicos ----------
+app.get('/api/paquetes', requireUser, async (req, res) => {
+  if (!isApproved(req)) return res.status(403).json({ error: 'Cuenta pendiente' });
+  try {
+    const { data, error } = await supabase.from('paquetes').select('*').order('nombre');
+    if (error) throw error;
+    res.json({ paquetes: data });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener paquetes' });
+  }
+});
+
+app.post('/api/paquetes', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { nombre, descripcion, precio, duracion_min, activo = true } = req.body || {};
+    if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
+    const { data, error } = await supabase.from('paquetes').insert({
+      nombre: String(nombre).slice(0, 200), descripcion: String(descripcion || '').slice(0, 2000),
+      precio: precio != null ? Number(precio) : null, duracion_min: duracion_min != null ? Number(duracion_min) : null,
+      activo: !!activo
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ paquete: data });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al crear paquete' });
+  }
+});
+
+app.patch('/api/paquetes/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const update = {};
+    for (const f of ['nombre', 'descripcion']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 2000);
+    if (req.body.precio != null) update.precio = Number(req.body.precio);
+    if (req.body.duracion_min != null) update.duracion_min = Number(req.body.duracion_min);
+    if (req.body.activo != null) update.activo = !!req.body.activo;
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('paquetes').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ paquete: data });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al actualizar paquete' });
+  }
+});
+
+// ---------- Recuperación de contraseña por código ----------
+app.post('/api/auth/recuperar', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email requerido' });
+    const user = await findAuthUserByEmail(email);
+    if (!user) return res.status(400).json({ error: 'Cuenta no encontrada' });
+    const codigo = nuevoCodigo();
+    await setVerifMeta(user.id, {
+      recup_hash: hashCodigo(codigo), recup_exp: Date.now() + CODE_TTL_MS, recup_intentos: 0
+    });
+    const enviado = await enviarCodigo(email, codigo).catch(() => false);
+    const resp = { ok: true };
+    if (!enviado && process.env.NODE_ENV !== 'production') resp.dev_codigo = codigo;
+    res.json(resp);
+  } catch (e) {
+    console.error('recuperar:', e);
+    res.status(500).json({ error: 'Error al enviar código' });
+  }
+});
+
+app.post('/api/auth/restablecer', async (req, res) => {
+  try {
+    const { email, codigo, password } = req.body || {};
+    if (!email || !codigo || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Email, código y contraseña (mín. 6) requeridos' });
+    }
+    const user = await findAuthUserByEmail(email);
+    if (!user) return res.status(400).json({ error: 'Cuenta no encontrada' });
+    const meta = user.user_metadata || {};
+    if (!meta.recup_hash || Date.now() > meta.recup_exp || (meta.recup_intentos || 0) >= CODE_MAX_INTENTOS) {
+      return res.status(400).json({ error: 'Código inválido o vencido. Solicita uno nuevo.' });
+    }
+    if (hashCodigo(String(codigo).trim()) !== meta.recup_hash) {
+      await setVerifMeta(user.id, { recup_intentos: (meta.recup_intentos || 0) + 1 });
+      return res.status(400).json({ error: 'Código incorrecto' });
+    }
+    const { error } = await supabase.auth.admin.updateUserById(user.id, { password });
+    if (error) throw error;
+    await setVerifMeta(user.id, { recup_hash: null, recup_exp: null, recup_intentos: 0 });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('restablecer:', e);
+    res.status(500).json({ error: 'Error al restablecer contraseña' });
+  }
+});
 
 // ---------- Frontend estático (mismo servidor) ----------
 const webBuild = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/build');

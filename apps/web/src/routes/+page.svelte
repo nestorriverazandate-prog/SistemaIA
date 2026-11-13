@@ -15,6 +15,7 @@
  let notifs = $state([]);
  let notifAbiertas = $state(false);
  let notifTimer = null;
+ let notifEs = null;
  let formError = $state('');
  let formOk = $state('');
  let saving = $state(false);
@@ -58,15 +59,33 @@
  if (esAdmin) {
  const r = await api.perfiles();
  perfiles = r.perfiles;
+ cargarPaquetes();
+ } else {
+ const v = await api.visitas().catch(() => ({ visitas: [] }));
+ misVisitas = v.visitas || [];
+ empForm.telefono = perfil?.telefono || '';
+ empForm.domicilio = perfil?.domicilio || '';
  }
  } catch (e) {
  formError = e.message;
  }
  }
 
- let authMode = $state('login'); // 'login' | 'registro' | 'verificar'
+ async function guardarMiPerfil() {
+ empError = ''; empMsg = '';
+ empSaving = true;
+ try {
+ await api.actualizarPerfil(perfil.id, empForm);
+ perfil = { ...perfil, ...empForm };
+ empMsg = 'Datos actualizados';
+ } catch (e) { empError = e.message; }
+ finally { empSaving = false; }
+ }
+
+ let authMode = $state('login'); // 'login' | 'registro' | 'verificar' | 'recuperar' | 'restablecer'
  let email = $state('');
  let password = $state('');
+ let password2 = $state('');
  let codigo = $state('');
  let verifEmail = $state('');
  let authLoading = $state(false);
@@ -165,10 +184,52 @@
  }
  }
 
+ async function recuperarClave(e) {
+ e.preventDefault();
+ authError = '';
+ authInfo = '';
+ authLoading = true;
+ try {
+ const data = await api.recuperar(email);
+ verifEmail = email;
+ codigo = '';
+ password = '';
+ password2 = '';
+ authMode = 'restablecer';
+ authInfo = data.dev_codigo
+ ? `Modo desarrollo — tu código es: ${data.dev_codigo}`
+ : `Te enviamos un código a ${email}`;
+ } catch (err) {
+ authError = err.message;
+ } finally {
+ authLoading = false;
+ }
+ }
+
+ async function restablecerClave(e) {
+ e.preventDefault();
+ authError = '';
+ authInfo = '';
+ if (password !== password2) { authError = 'Las contraseñas no coinciden'; return; }
+ authLoading = true;
+ try {
+ await api.restablecer(verifEmail, codigo, password);
+ authMode = 'login';
+ email = verifEmail;
+ password = '';
+ authInfo = 'Contraseña actualizada. Ya puedes iniciar sesión.';
+ } catch (err) {
+ authError = err.message;
+ } finally {
+ authLoading = false;
+ }
+ }
+
  async function logout() {
  setToken(null);
  if (notifTimer) clearInterval(notifTimer);
  notifTimer = null;
+ if (notifEs) { notifEs.close(); notifEs = null; }
  notifs = [];
  user = null;
  perfil = null;
@@ -177,6 +238,12 @@
  }
 
  let editandoId = $state(null);
+ let misVisitas = $state([]);
+ const visitasHoy = $derived(misVisitas.filter((v) => String(v.fecha) === new Date().toISOString().slice(0, 10)));
+ let empForm = $state({ telefono: '', domicilio: '' });
+ let empMsg = $state('');
+ let empError = $state('');
+ let empSaving = $state(false);
  const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null };
 
  function editar(p) {
@@ -242,6 +309,49 @@
  catch (e) { formError = e.message; }
  }
 
+ // Expediente laboral
+ let expId = $state(null);
+ let expForm = $state({});
+ function editarExpediente(u) {
+ expId = u.id;
+ expForm = {
+ telefono: u.telefono || '', domicilio: u.domicilio || '', profesion: u.profesion || '',
+ especialidad: u.especialidad || '', id_laboral: u.id_laboral || '',
+ fecha_contratacion: u.fecha_contratacion ? String(u.fecha_contratacion).slice(0, 10) : '',
+ estado_laboral: u.estado_laboral || 'activo'
+ };
+ }
+ async function guardarExpediente() {
+ formError = ''; formOk = '';
+ try {
+ await api.actualizarPerfil(expId, expForm);
+ formOk = 'Expediente actualizado';
+ expId = null;
+ await cargar();
+ } catch (e) { formError = e.message; }
+ }
+
+ // Paquetes / servicios
+ let paquetes = $state([]);
+ let formPaquete = $state({ nombre: '', descripcion: '', precio: '', duracion_min: 60 });
+ async function cargarPaquetes() {
+ try { const r = await api.paquetes(); paquetes = r.paquetes || []; } catch { /* tabla puede no existir aún */ }
+ }
+ async function crearPaquete(e) {
+ e.preventDefault();
+ formError = ''; formOk = '';
+ try {
+ await api.crearPaquete(formPaquete);
+ formOk = 'Paquete creado';
+ formPaquete = { nombre: '', descripcion: '', precio: '', duracion_min: 60 };
+ await cargarPaquetes();
+ } catch (err) { formError = err.message; }
+ }
+ async function togglePaquete(p) {
+ try { await api.actualizarPaquete(p.id, { activo: !p.activo }); await cargarPaquetes(); }
+ catch (e) { formError = e.message; }
+ }
+
  const noLeidas = $derived(notifs.filter(n => !n.leida).length);
 
  async function cargarNotifs() {
@@ -271,7 +381,11 @@
  const { user: me } = await api.me();
  user = { email: me.email };
  perfil = me.perfil;
- if (aprobado) { await cargar(); await cargarNotifs(); notifTimer = setInterval(cargarNotifs, 15000); }
+ if (aprobado) { await cargar(); await cargarNotifs(); notifTimer = setInterval(cargarNotifs, 15000);
+ // Notificaciones en tiempo real vía SSE
+ notifEs = new EventSource('/api/eventos');
+ notifEs.onmessage = (e) => { try { if (JSON.parse(e.data).tipo === 'notificacion') cargarNotifs(); } catch {} };
+ }
  } catch (e) {
  // Solo cerrar sesión si el token es realmente inválido; errores de red no desloguean
  if (e?.message === 'Sesión expirada') setToken(null);
@@ -280,7 +394,7 @@
  }
  loading = false;
  renderGoogleButton();
- return () => window.removeEventListener('pageshow', onPageShow);
+ return () => { window.removeEventListener('pageshow', onPageShow); if (notifEs) notifEs.close(); };
  });
 </script>
 
@@ -292,14 +406,18 @@
  <main class="card">
  <img class="logo-login" src="/logo.png" alt="Agencia Gerontológica Integral" />
  <p class="agency-login">Agencia Gerontológica Integral</p>
- <h1>{authMode === 'login' ? 'Iniciar sesión': authMode === 'registro' ? 'Crear cuenta' : 'Verifica tu correo'}</h1>
+ <h1>{authMode === 'login' ? 'Iniciar sesión': authMode === 'registro' ? 'Crear cuenta' : authMode === 'verificar' ? 'Verifica tu correo' : authMode === 'recuperar' ? 'Recuperar contraseña' : 'Nueva contraseña'}</h1>
  {#if authMode === 'verificar'}
  <p class="muted">Ingresa el código de 6 dígitos que enviamos a <strong>{verifEmail}</strong>.</p>
+ {:else if authMode === 'recuperar'}
+ <p class="muted">Escribe tu correo y te enviaremos un código para restablecer tu contraseña.</p>
+ {:else if authMode === 'restablecer'}
+ <p class="muted">Ingresa el código enviado a <strong>{verifEmail}</strong> y tu nueva contraseña.</p>
  {:else}
  <p class="muted">Tu cuenta quedará <strong>pendiente de aprobación</strong> por un administrador.</p>
  {/if}
 
- {#if authMode!== 'verificar'}
+ {#if authMode === 'login' || authMode === 'registro'}
  <div bind:this={googleBtn} class="google-btn"></div>
  {#if !env.PUBLIC_GOOGLE_CLIENT_ID}
  <p class="muted small">Google no configurado (falta PUBLIC_GOOGLE_CLIENT_ID)</p>
@@ -320,6 +438,23 @@
  <button type="button" class="ghost" onclick={reenviar} disabled={authLoading}>Reenviar código</button>
  <button type="button" class="ghost" onclick={() => { authMode = 'login'; authError = ''; authInfo = ''; }}>Volver</button>
  </div>
+ {:else if authMode === 'recuperar'}
+ <form onsubmit={recuperarClave}>
+ <label>Email <input type="email" bind:value={email} required autocomplete="email" /></label>
+ <button disabled={authLoading}>{authLoading? 'Enviando…': 'Enviar código'}</button>
+ </form>
+ <p class="switch"><a href="#" onclick={(e) =>{ e.preventDefault(); authMode = 'login'; authError = ''; authInfo = ''; }}>← Volver a iniciar sesión</a></p>
+ {:else if authMode === 'restablecer'}
+ <form onsubmit={restablecerClave}>
+ <label>Código <input bind:value={codigo} required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" /></label>
+ <label>Nueva contraseña <input type="password" bind:value={password} required minlength="6" autocomplete="new-password" /></label>
+ <label>Confirmar contraseña <input type="password" bind:value={password2} required minlength="6" autocomplete="new-password" /></label>
+ <button disabled={authLoading}>{authLoading? 'Guardando…': 'Cambiar contraseña'}</button>
+ </form>
+ <div class="btns" style="margin-top:.6rem">
+ <button type="button" class="ghost" onclick={recuperarClave} disabled={authLoading}>Reenviar código</button>
+ <button type="button" class="ghost" onclick={() => { authMode = 'login'; authError = ''; authInfo = ''; }}>Volver</button>
+ </div>
  {:else}
  <form onsubmit={loginPassword}>
  <label>Email <input type="email" bind:value={email} required autocomplete="email" /></label>
@@ -334,6 +469,9 @@
  ¿Ya tienes cuenta? <a href="#" onclick={(e) =>{ e.preventDefault(); authMode = 'login'; authError = ''; authInfo = ''; }}> Inicia sesión</a>
  {/if}
  </p>
+ {#if authMode === 'login'}
+ <p class="switch"><a href="#" onclick={(e) =>{ e.preventDefault(); authMode = 'recuperar'; authError = ''; authInfo = ''; }}>¿Olvidaste tu contraseña?</a></p>
+ {/if}
  {/if}
  </main>
 {:else if !perfil}
@@ -350,7 +488,7 @@
  <p class="muted">Tu cuenta ({perfil.email}) fue rechazada. Contacta al administrador.</p>
  <button class="ghost" onclick={logout}>Cerrar sesión</button>
  </main>
-{:else}
+{:else if perfil.rol === 'admin'}
  <header>
  <div class="brand">
  <img src="/logo.png" alt="Agencia Gerontológica Integral" />
@@ -477,6 +615,7 @@
  {#if u.rol!== 'admin'}
  <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { rol: 'admin' })}>Hacer admin</button>
  {/if}
+ <button class="mini ghost" onclick={() => editarExpediente(u)}>Expediente</button>
  </td>
  </tr>
  {:else}
@@ -484,8 +623,149 @@
  {/each}
  </tbody>
  </table>
+
+ {#if expId}
+ <h3>Expediente laboral</h3>
+ <form class="exp-form" onsubmit={(e) => { e.preventDefault(); guardarExpediente(); }}>
+ <div class="row">
+ <label>Teléfono <input bind:value={expForm.telefono} /></label>
+ <label>Domicilio <input bind:value={expForm.domicilio} /></label>
+ <label>Profesión <input bind:value={expForm.profesion} /></label>
+ <label>Especialidad <input bind:value={expForm.especialidad} /></label>
+ </div>
+ <div class="row">
+ <label>ID laboral <input bind:value={expForm.id_laboral} /></label>
+ <label>Fecha de contratación <input bind:value={expForm.fecha_contratacion} type="date" /></label>
+ <label>Estado laboral
+ <select bind:value={expForm.estado_laboral}>
+ <option value="activo">activo</option>
+ <option value="inactivo">inactivo</option>
+ <option value="suspendido">suspendido</option>
+ </select></label>
+ </div>
+ <div class="btns">
+ <button>Guardar expediente</button>
+ <button type="button" class="ghost" onclick={() => (expId = null)}>Cancelar</button>
+ </div>
+ </form>
+ {/if}
+ </section>
+
+ <section class="card wide">
+ <h2>Paquetes y servicios ({paquetes.length})</h2>
+ <table>
+ <thead><tr><th>Nombre</th><th>Descripción</th><th>Precio</th><th>Duración</th><th>Estado</th><th></th></tr></thead>
+ <tbody>
+ {#each paquetes as p (p.id)}
+ <tr>
+ <td>{p.nombre}</td>
+ <td>{p.descripcion || '—'}</td>
+ <td>{p.precio != null ? '$' + Number(p.precio).toFixed(2) : '—'}</td>
+ <td>{p.duracion_min != null ? p.duracion_min + ' min' : '—'}</td>
+ <td>{p.activo ? 'activo' : 'inactivo'}</td>
+ <td><button class="mini ghost" onclick={() => togglePaquete(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button></td>
+ </tr>
+ {:else}<tr><td colspan="6" class="muted">Sin paquetes — crea el primero abajo</td></tr>{/each}
+ </tbody>
+ </table>
+ <h3>Nuevo paquete</h3>
+ <form class="exp-form" onsubmit={crearPaquete}>
+ <div class="row">
+ <label>Nombre <input bind:value={formPaquete.nombre} required /></label>
+ <label>Precio <input bind:value={formPaquete.precio} type="number" min="0" step="0.01" /></label>
+ <label>Duración (min) <input bind:value={formPaquete.duracion_min} type="number" min="15" /></label>
+ </div>
+ <label>Descripción <textarea bind:value={formPaquete.descripcion} rows="2"></textarea></label>
+ <button>Crear paquete</button>
+ </form>
  </section>
  {/if}
+ </main>
+{:else}
+ <!-- ===== Panel del empleado ===== -->
+ <header>
+ <div class="brand">
+ <img src="/logo.png" alt="Agencia Gerontológica Integral" />
+ <div class="brand-text">
+ <span class="agency">Agencia Gerontológica Integral</span>
+ <h1>Panel del empleado</h1>
+ </div>
+ </div>
+ <div>
+ <span class="badge">{perfil.email} · empleado</span>
+ <a class="ghost link" href="/visitas">Mis visitas</a>
+ <button class="ghost" onclick={logout}>Salir</button>
+ </div>
+ </header>
+
+ <main class="grid">
+ <section class="card">
+ <h2>Hola, {perfil.nombre || perfil.email}</h2>
+ <p class="muted">
+ {#if perfil.profesion}{perfil.profesion}{/if}
+ {#if perfil.especialidad} · {perfil.especialidad}{/if}
+ {#if perfil.estado_laboral} · {perfil.estado_laboral}{/if}
+ </p>
+
+ <h3>Mis datos de contacto</h3>
+ <form onsubmit={(e) => { e.preventDefault(); guardarMiPerfil(); }}>
+ <label>Teléfono <input bind:value={empForm.telefono} type="tel" /></label>
+ <label>Domicilio <input bind:value={empForm.domicilio} /></label>
+ {#if empError}<p class="error">{empError}</p>{/if}
+ {#if empMsg}<p class="ok">{empMsg}</p>{/if}
+ <button disabled={empSaving}>{empSaving? 'Guardando…': 'Guardar'}</button>
+ <p class="muted small">Los cambios de datos institucionales requieren autorización del directivo.</p>
+ </form>
+ </section>
+
+ <section class="card">
+ <h2>Mis visitas</h2>
+ <div class="stats-mini">
+ <span class="badge">{visitasHoy.filter((v) => v.estado === 'programada').length} programadas</span>
+ <span class="badge">{visitasHoy.filter((v) => v.estado === 'en_curso').length} en curso</span>
+ <span class="badge">{visitasHoy.filter((v) => v.estado === 'finalizada').length} finalizadas</span>
+ </div>
+ <table>
+ <thead><tr><th>Fecha</th><th>Hora</th><th>Paciente</th><th>Estado</th></tr></thead>
+ <tbody>
+ {#each visitasHoy.slice(0, 8) as v (v.id)}
+ <tr>
+ <td>{v.fecha}</td><td>{v.hora_programada || '—'}</td>
+ <td>{v.pacientes?.nombre} {v.pacientes?.apellido}</td>
+ <td><span class="estado estado-{v.estado}">{v.trabajador_estado || v.estado.replace('_', ' ')}</span></td>
+ </tr>
+ {:else}<tr><td colspan="4" class="muted">Sin visitas hoy</td></tr>{/each}
+ </tbody>
+ </table>
+ <a class="ghost link" href="/visitas" style="display:inline-block;margin-top:.6rem">Abrir Mis visitas →</a>
+ </section>
+
+ <section class="card">
+ <h2>Pacientes asignados ({pacientes.length})</h2>
+ <table>
+ <thead><tr><th>Nombre</th><th>Edad</th><th>Dirección</th><th>Teléfono</th></tr></thead>
+ <tbody>
+ {#each pacientes as p (p.id)}
+ <tr>
+ <td>{p.nombre} {p.apellido}</td>
+ <td>{p.cedula ? p.cedula + ' años' : '—'}</td>
+ <td>{p.direccion || '—'}</td>
+ <td>{p.telefono || '—'}</td>
+ </tr>
+ {:else}<tr><td colspan="4" class="muted">Sin pacientes asignados</td></tr>{/each}
+ </tbody>
+ </table>
+ </section>
+
+ <section class="card">
+ <h2>Notificaciones</h2>
+ {#each notifs.slice(0, 6) as n (n.id)}
+ <div class="notif-item" class:noleida={!n.leida} onclick={() => marcarLeida(n)}>
+ <small>{new Date(n.created_at).toLocaleString()}</small>
+ <div>{n.mensaje}</div>
+ </div>
+ {:else}<p class="muted">Sin notificaciones</p>{/each}
+ </section>
  </main>
 {/if}
 
@@ -501,6 +781,10 @@
 .logo-login { display: block; width: 96px; height: 96px; object-fit: cover; margin: 0 auto 1rem; border-radius: 16px; background: #f2eee2; padding: 6px; }
 .agency-login { text-align: center; font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: oklch(0.7 0.1 78); margin: -0.5rem 0 1rem; }
 .badge { font-size:.75rem; background: oklch(0.42 0.068 218); color: #f2eee2; padding:.3rem.6rem; border-radius: 999px; }
+.stats-mini { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.stats-mini .badge { background: oklch(0.66 0.055 145); color: oklch(0.27 0.035 225); }
+h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
+.exp-form { display: flex; flex-direction: column; gap: .7rem; margin-top: .8rem; border-top: 1px solid oklch(0.93 0.025 140); padding-top: .8rem; }
 .grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.5rem; padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto; }
 .wide { grid-column: 1 / -1; }
  @media (max-width: 900px) {.grid { grid-template-columns: 1fr; } }
