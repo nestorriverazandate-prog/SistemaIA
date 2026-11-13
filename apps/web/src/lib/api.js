@@ -98,7 +98,12 @@ export const api = {
   incidenciaGps: (id, descripcion) => request(`/api/visitas/${id}/incidencia-gps`, { method: 'POST', body: JSON.stringify({ descripcion }) }),
   paquetes: () => request('/api/paquetes'),
   crearPaquete: (p) => request('/api/paquetes', { method: 'POST', body: JSON.stringify(p) }),
-  actualizarPaquete: (id, p) => request(`/api/paquetes/${id}`, { method: 'PATCH', body: JSON.stringify(p) })
+  actualizarPaquete: (id, p) => request(`/api/paquetes/${id}`, { method: 'PATCH', body: JSON.stringify(p) }),
+  // Directorio y expedientes del personal
+  directorio: () => request('/api/directorio'),
+  crearTrabajador: (t) => request('/api/trabajadores', { method: 'POST', body: JSON.stringify(t) }),
+  historialPerfil: (id) => request(`/api/perfiles/${id}/historial`),
+  eliminarTrabajador: (id) => request(`/api/trabajadores/${id}`, { method: 'DELETE' })
 };
 
 async function requestBlob(path) {

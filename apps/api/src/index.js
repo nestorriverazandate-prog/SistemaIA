@@ -348,7 +348,36 @@ app.get('/api/perfiles', requireUser, async (req, res) => {
 });
 
 // Campos del expediente laboral (columnas nuevas en perfiles)
-const PERFIL_EXPEDIENTE = ['telefono', 'domicilio', 'profesion', 'especialidad', 'id_laboral', 'fecha_contratacion', 'estado_laboral'];
+const PERFIL_EXPEDIENTE = [
+  'telefono', 'domicilio', 'profesion', 'especialidad', 'id_laboral', 'fecha_contratacion', 'estado_laboral',
+  // Datos personales
+  'fecha_nacimiento', 'sexo', 'curp', 'codigo_postal',
+  // Información profesional
+  'cedula_profesional', 'institucion', 'cursos', 'experiencia_anos', 'experiencia_previa', 'areas', 'servicios_autorizados',
+  // Información laboral
+  'puesto', 'tipo_contrato', 'horario', 'dias_disponibles', 'zona', 'sueldo', 'disponibilidad'
+];
+
+// Quita de un objeto la columna que Supabase reporta como inexistente
+function sinColumnaReportada(obj, errorMsg) {
+  const copia = { ...obj };
+  const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist/i.exec(errorMsg || '');
+  if (m) delete copia[m[1]];
+  return copia;
+}
+
+// Registra en perfiles_historial los campos del expediente que cambiaron
+async function logHistorialPerfil(perfilId, antes, despues, actor) {
+  try {
+    const filas = [];
+    for (const f of [...PERFIL_EXPEDIENTE, 'estado_laboral', 'estado', 'rol', 'nombre', 'contactos_emergencia']) {
+      const a = JSON.stringify(antes?.[f] ?? null);
+      const d = JSON.stringify(despues?.[f] ?? null);
+      if (a !== d) filas.push({ perfil_id: perfilId, campo: f, valor_anterior: a, valor_nuevo: d, actor });
+    }
+    if (filas.length) await supabase.from('perfiles_historial').insert(filas);
+  } catch { /* la tabla puede no existir aún */ }
+}
 
 app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
   try {
@@ -359,10 +388,12 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
 
     const { estado, rol } = req.body || {};
     const update = {};
+    let antes = null;
     if (esAdminUser) {
+      const { data: objetivo } = await supabase.from('perfiles').select('*').eq('id', req.params.id).maybeSingle();
+      antes = objetivo;
       // Solo la cuenta designada puede tener rol admin
       if (rol) {
-        const { data: objetivo } = await supabase.from('perfiles').select('email').eq('id', req.params.id).maybeSingle();
         const esCuentaAdmin = objetivo?.email === ADMIN_EMAIL;
         if (rol === 'admin' && !esCuentaAdmin) {
           return res.status(403).json({ error: 'Solo la cuenta administradora puede tener rol Directivo' });
@@ -373,22 +404,143 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
         if (['admin', 'paciente', 'staff', 'familiar', 'cuidador'].includes(rol)) update.rol = rol;
       }
       if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
+      if (req.body.nombre != null) update.nombre = String(req.body.nombre).slice(0, 200);
       for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
+      // Contactos de emergencia: arreglo JSON (máx. 2, uno principal)
+      if (Array.isArray(req.body.contactos_emergencia)) {
+        const limpios = req.body.contactos_emergencia.slice(0, 2).map((c) => ({
+          nombre: String(c.nombre || '').slice(0, 200),
+          parentesco: String(c.parentesco || '').slice(0, 100),
+          telefono: String(c.telefono || '').slice(0, 50),
+          telefono_alt: String(c.telefono_alt || '').slice(0, 50),
+          email: String(c.email || '').slice(0, 200),
+          domicilio: String(c.domicilio || '').slice(0, 300),
+          observaciones: String(c.observaciones || '').slice(0, 500),
+          principal: !!c.principal
+        }));
+        update.contactos_emergencia = limpios;
+      }
     } else {
       for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const { data, error } = await supabase
-      .from('perfiles')
-      .update(update)
-      .eq('id', req.params.id)
-      .select()
-      .single();
+
+    // Reintenta quitando columnas que la BD aún no tenga
+    let payload = update;
+    let data = null, error = null;
+    for (let i = 0; i < 25; i++) {
+      ({ data, error } = await supabase.from('perfiles').update(payload).eq('id', req.params.id).select().single());
+      if (!error) break;
+      if (!/does not exist/i.test(error.message)) break;
+      const reducido = sinColumnaReportada(payload, error.message);
+      if (JSON.stringify(reducido) === JSON.stringify(payload)) break; // columna no reconocida
+      payload = reducido;
+    }
     if (error) throw error;
+    if (esAdminUser && antes) await logHistorialPerfil(req.params.id, antes, data, req.user.email);
     res.json({ perfil: data });
   } catch (e) {
     console.error('PATCH /api/perfiles:', e);
     res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
+// ---------- Directorio del personal (solo directivo) ----------
+app.get('/api/directorio', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede ver el directorio' });
+  try {
+    const { data, error } = await supabase
+      .from('perfiles')
+      .select('*')
+      .neq('rol', 'admin')
+      .order('nombre');
+    if (error) throw error;
+    const authMap = await authUsersMap();
+    const trabajadores = (data || []).map((t) => ({
+      ...t,
+      avatar_url: authMap.get(t.id)?.avatar_url || null
+    }));
+    res.json({ trabajadores });
+  } catch (e) {
+    console.error('GET /api/directorio:', e);
+    res.status(500).json({ error: 'Error al obtener directorio' });
+  }
+});
+
+// Registrar trabajador: crea la cuenta de acceso y su expediente
+app.post('/api/trabajadores', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede registrar trabajadores' });
+  try {
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const password = String(b.password || '');
+    const nombre = String(b.nombre || '').trim();
+    if (!email || !password || !nombre) return res.status(400).json({ error: 'nombre, email y contraseña son requeridos' });
+    if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    const rol = ['staff', 'paciente', 'familiar', 'cuidador'].includes(b.rol) ? b.rol : 'staff';
+
+    const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
+      email, password, email_confirm: true
+    });
+    if (authErr) return res.status(400).json({ error: authErr.message || 'No se pudo crear la cuenta' });
+    const uid = authData.user.id;
+
+    const perfil = { id: uid, email, nombre, estado: 'aprobado', rol };
+    for (const f of PERFIL_EXPEDIENTE) if (b[f] != null) perfil[f] = String(b[f]).slice(0, 300);
+    if (Array.isArray(b.contactos_emergencia)) perfil.contactos_emergencia = b.contactos_emergencia.slice(0, 2);
+
+    let data = null, error = null, payload = perfil;
+    for (let i = 0; i < 25; i++) {
+      ({ data, error } = await supabase.from('perfiles').insert(payload).select().single());
+      if (!error) break;
+      if (!/does not exist/i.test(error.message)) break;
+      const reducido = sinColumnaReportada(payload, error.message);
+      if (JSON.stringify(reducido) === JSON.stringify(payload)) break;
+      payload = reducido;
+    }
+    if (error) {
+      await supabase.auth.admin.deleteUser(uid).catch(() => {});
+      throw error;
+    }
+    res.status(201).json({ trabajador: data });
+  } catch (e) {
+    console.error('POST /api/trabajadores:', e);
+    res.status(500).json({ error: 'Error al registrar trabajador' });
+  }
+});
+
+// Dar de baja / eliminar trabajador (solo directivo, con confirmación en UI)
+app.delete('/api/trabajadores/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede eliminar trabajadores' });
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
+  try {
+    const { data: obj } = await supabase.from('perfiles').select('email').eq('id', req.params.id).maybeSingle();
+    if (obj?.email === ADMIN_EMAIL) return res.status(403).json({ error: 'La cuenta administradora no puede eliminarse' });
+    await supabase.from('perfiles').delete().eq('id', req.params.id);
+    await supabase.auth.admin.deleteUser(req.params.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /api/trabajadores:', e);
+    res.status(500).json({ error: 'Error al eliminar trabajador' });
+  }
+});
+
+// Historial de modificaciones del expediente
+app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
+  const esPropio = req.params.id === req.user.id;
+  if (!isAdmin(req) && !esPropio) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { data, error } = await supabase
+      .from('perfiles_historial')
+      .select('*')
+      .eq('perfil_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) return res.json({ historial: [] }); // tabla puede no existir aún
+    res.json({ historial: data || [] });
+  } catch (e) {
+    console.error('GET historial:', e);
+    res.status(500).json({ error: 'Error al obtener historial' });
   }
 });
 
@@ -704,6 +856,14 @@ function puedeVerTodas(req) {
   return isAdmin(req) || req.user?.perfil?.rol === 'staff';
 }
 
+// Un trabajador suspendido/inactivo no puede recibir visitas nuevas
+async function trabajadorAsignable(id) {
+  if (!id) return true;
+  const { data } = await supabase.from('perfiles').select('estado_laboral').eq('id', id).maybeSingle();
+  if (!data) return true; // sin expediente: no bloquear
+  return !['inactivo', 'suspendido'].includes(data.estado_laboral);
+}
+
 app.post('/api/visitas', requireUser, async (req, res) => {
   if (!isAdmin(req) && req.user?.perfil?.rol !== 'staff') {
     return res.status(403).json({ error: 'Solo admin/staff puede asignar visitas' });
@@ -711,6 +871,9 @@ app.post('/api/visitas', requireUser, async (req, res) => {
   try {
     const { paciente_id, trabajador_id, fecha, hora_programada, radio_m, duracion_estimada_min } = req.body || {};
     if (!paciente_id || !fecha) return res.status(400).json({ error: 'paciente_id y fecha son requeridos' });
+    if (!(await trabajadorAsignable(trabajador_id))) {
+      return res.status(400).json({ error: 'El trabajador está suspendido o inactivo; actualiza su estado laboral primero' });
+    }
 
     // El paciente debe tener coordenadas
     const { data: pac } = await supabase.from('pacientes').select('id, lat, lng, nombre, apellido, direccion').eq('id', paciente_id).single();
@@ -785,7 +948,12 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     if (estado && ['programada', 'cancelada'].includes(estado) && (puedeVerTodas(req) || esPropia)) update.estado = estado;
     if (puedeVerTodas(req)) {
       if (hora_programada) update.hora_programada = hora_programada;
-      if (trabajador_id !== undefined) update.trabajador_id = trabajador_id || null;
+      if (trabajador_id !== undefined) {
+        if (!(await trabajadorAsignable(trabajador_id || null))) {
+          return res.status(400).json({ error: 'El trabajador está suspendido o inactivo; actualiza su estado laboral primero' });
+        }
+        update.trabajador_id = trabajador_id || null;
+      }
       if (duracion_estimada_min) update.duracion_estimada_min = Number(duracion_estimada_min);
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });

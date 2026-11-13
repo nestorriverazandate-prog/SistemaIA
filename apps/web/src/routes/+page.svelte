@@ -71,6 +71,7 @@
  const r = await api.perfiles();
  perfiles = r.perfiles;
  cargarPaquetes();
+ cargarDirectorio();
  } else {
  const v = await api.visitas().catch(() => ({ visitas: [] }));
  misVisitas = v.visitas || [];
@@ -322,27 +323,127 @@
  catch (e) { formError = e.message; }
  }
 
- // Expediente laboral
- let expId = $state(null);
- let expForm = $state({});
- function editarExpediente(u) {
- expId = u.id;
- expForm = {
- telefono: u.telefono || '', domicilio: u.domicilio || '', profesion: u.profesion || '',
- especialidad: u.especialidad || '', id_laboral: u.id_laboral || '',
- fecha_contratacion: u.fecha_contratacion ? String(u.fecha_contratacion).slice(0, 10) : '',
- estado_laboral: u.estado_laboral || 'activo'
+ // ===== Directorio y expedientes del personal =====
+ let directorio = $state([]);
+ let dirBusqueda = $state('');
+ let dirFiltroEstado = $state('');
+ let dirFiltroArea = $state('');
+ let dirSel = $state(null);
+ let dirForm = $state({});
+ let dirContactos = $state([]);
+ let dirHistorial = $state([]);
+ let dirVerHistorial = $state(false);
+ let dirNueva = $state(false);
+ let dirNuevo = $state({ nombre: '', email: '', password: '', rol: 'staff', profesion: '', telefono: '' });
+
+ const DIR_CAMPOS = {
+ personal: [
+ ['nombre', 'Nombre completo'], ['fecha_nacimiento', 'Fecha de nacimiento', 'date'], ['sexo', 'Sexo'],
+ ['curp', 'CURP'], ['codigo_postal', 'Código postal'], ['domicilio', 'Domicilio particular'], ['telefono', 'Teléfono personal']
+ ],
+ profesional: [
+ ['profesion', 'Profesión o licenciatura'], ['especialidad', 'Especialidad'], ['cedula_profesional', 'Cédula profesional'],
+ ['institucion', 'Institución educativa de egreso'], ['cursos', 'Cursos, diplomados y certificaciones'],
+ ['experiencia_anos', 'Años de experiencia'], ['experiencia_previa', 'Experiencia laboral previa'],
+ ['areas', 'Áreas de competencia'], ['servicios_autorizados', 'Servicios autorizados']
+ ],
+ laboral: [
+ ['puesto', 'Puesto en la agencia'], ['tipo_contrato', 'Tipo de contrato'], ['horario', 'Horario laboral'],
+ ['dias_disponibles', 'Días disponibles'], ['zona', 'Zona de trabajo'], ['sueldo', 'Sueldo / modalidad de pago'],
+ ['disponibilidad', 'Disponibilidad'], ['id_laboral', 'Número de identificación laboral'],
+ ['fecha_contratacion', 'Fecha de contratación', 'date']
+ ]
  };
+ const DIR_TITULOS = { personal: 'A. Datos personales', profesional: 'B. Información profesional', laboral: 'C. Información laboral' };
+ const CONTACTO_VACIO = { nombre: '', parentesco: '', telefono: '', telefono_alt: '', email: '', domicilio: '', observaciones: '', principal: false };
+
+ const estadoLaboralDe = (t) => t.estado_laboral || 'activo';
+ const dirFiltrados = $derived(directorio.filter((t) => {
+ const q = dirBusqueda.trim().toLowerCase();
+ if (q && ![t.nombre, t.profesion, t.especialidad, t.areas, t.puesto].some((v) => (v || '').toLowerCase().includes(q))) return false;
+ if (dirFiltroEstado && estadoLaboralDe(t) !== dirFiltroEstado) return false;
+ if (dirFiltroArea) {
+ const area = dirFiltroArea.toLowerCase();
+ if (!(t.profesion || '').toLowerCase().includes(area) && !(t.areas || '').toLowerCase().includes(area)) return false;
  }
- async function guardarExpediente() {
+ return true;
+}));
+ const dirAreas = $derived([...new Set(directorio.flatMap((t) => [t.profesion, t.areas]).filter(Boolean))].sort());
+ const dirStats = $derived({
+ activos: directorio.filter((t) => estadoLaboralDe(t) === 'activo').length,
+ inactivos: directorio.filter((t) => estadoLaboralDe(t) === 'inactivo').length,
+ suspendidos: directorio.filter((t) => estadoLaboralDe(t) === 'suspendido').length
+ });
+
+ async function cargarDirectorio() {
+ try { const r = await api.directorio(); directorio = r.trabajadores || []; } catch { /* silencioso */ }
+ }
+ function abrirDirectorio(u) {
+ dirBusqueda = ''; dirFiltroEstado = ''; dirFiltroArea = ''; dirSel = null; dirNueva = false;
+ cargarDirectorio().then(() => {
+ const t = directorio.find((x) => x.id === u.id);
+ if (t) abrirExpediente(t);
+ });
+ }
+ function abrirExpediente(t) {
+ dirSel = t;
+ dirForm = { ...t };
+ dirContactos = (Array.isArray(t.contactos_emergencia) ? t.contactos_emergencia : []).map((c) => ({ ...CONTACTO_VACIO, ...c }));
+ if (dirContactos.length && !dirContactos.some((c) => c.principal)) dirContactos[0].principal = true;
+ dirHistorial = []; dirVerHistorial = false;
+ api.historialPerfil(t.id).then((r) => { dirHistorial = r.historial || []; }).catch(() => {});
+ }
+ function cerrarExpediente() { dirSel = null; dirForm = {}; dirContactos = []; dirHistorial = []; }
+ function agregarContacto() { if (dirContactos.length < 2) dirContactos = [...dirContactos, { ...CONTACTO_VACIO, principal: dirContactos.length === 0 }]; }
+ function quitarContacto(i) {
+ dirContactos = dirContactos.filter((_, idx) => idx !== i);
+ if (dirContactos.length && !dirContactos.some((c) => c.principal)) dirContactos[0].principal = true;
+ }
+ function marcarPrincipal(i) { dirContactos = dirContactos.map((c, idx) => ({ ...c, principal: idx === i })); }
+
+ async function guardarExpedienteDir() {
  formError = ''; formOk = '';
  try {
- await api.actualizarPerfil(expId, expForm);
- formOk = 'Expediente actualizado';
- expId = null;
- await cargar();
+ const body = { estado_laboral: dirForm.estado_laboral || 'activo', contactos_emergencia: dirContactos };
+ for (const campos of Object.values(DIR_CAMPOS)) for (const [f] of campos) body[f] = dirForm[f] ?? '';
+ const { perfil } = await api.actualizarPerfil(dirSel.id, body);
+ dirSel = perfil;
+ const idx = directorio.findIndex((x) => x.id === perfil.id);
+ if (idx >= 0) directorio[idx] = perfil;
+ formOk = 'Expediente guardado';
+ api.historialPerfil(perfil.id).then((r) => { dirHistorial = r.historial || []; }).catch(() => {});
  } catch (e) { formError = e.message; }
  }
+ async function cambiarEstadoLaboral(t, valor) {
+ try {
+ const { perfil } = await api.actualizarPerfil(t.id, { estado_laboral: valor });
+ const idx = directorio.findIndex((x) => x.id === t.id);
+ if (idx >= 0) directorio[idx] = perfil;
+ if (dirSel?.id === t.id) dirSel = perfil;
+ } catch (e) { formError = e.message; }
+ }
+ async function eliminarTrabajador(t) {
+ if (!confirm(`¿Eliminar a ${t.nombre || t.email}? Se borrará su cuenta de acceso. Esta acción no se puede deshacer.`)) return;
+ formError = ''; formOk = '';
+ try {
+ await api.eliminarTrabajador(t.id);
+ directorio = directorio.filter((x) => x.id !== t.id);
+ if (dirSel?.id === t.id) cerrarExpediente();
+ formOk = 'Trabajador eliminado';
+ } catch (e) { formError = e.message; }
+ }
+ async function agregarTrabajador(e) {
+ e.preventDefault();
+ formError = ''; formOk = '';
+ try {
+ const { trabajador } = await api.crearTrabajador(dirNuevo);
+ directorio = [...directorio, trabajador].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+ dirNuevo = { nombre: '', email: '', password: '', rol: 'staff', profesion: '', telefono: '' };
+ dirNueva = false;
+ formOk = 'Trabajador registrado — ya puede iniciar sesión';
+ } catch (err) { formError = err.message; }
+ }
+ const fmtFecha = (v) => v ? String(v).slice(0, 10) : '—';
 
  // Paquetes / servicios
  let paquetes = $state([]);
@@ -633,7 +734,7 @@
  {#if u.estado!== 'rechazado'}
  <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { estado: 'rechazado' })}>Rechazar</button>
  {/if}
- <button class="mini ghost" onclick={() => editarExpediente(u)}>Expediente</button>
+ <button class="mini ghost" onclick={() => abrirDirectorio(u)}>Expediente</button>
  </td>
  </tr>
  {:else}
@@ -642,30 +743,169 @@
  </tbody>
  </table>
 
- {#if expId}
- <h3>Expediente laboral</h3>
- <form class="exp-form" onsubmit={(e) => { e.preventDefault(); guardarExpediente(); }}>
+ </section>
+
+ <!-- ===== Directorio y expedientes del personal ===== -->
+ <section class="card wide" id="directorio">
+ <div class="dir-header">
+ <h2>Directorio y expedientes del personal ({directorio.length})</h2>
+ <button class="mini" onclick={() => { dirNueva = !dirNueva; dirSel = null; }}>Agregar trabajador</button>
+ </div>
+ <div class="dir-stats">
+ <span class="chip chip-activo">Activos: {dirStats.activos}</span>
+ <span class="chip chip-inactivo">Inactivos: {dirStats.inactivos}</span>
+ <span class="chip chip-suspendido">Suspendidos: {dirStats.suspendidos}</span>
+ </div>
+ <div class="row dir-filtros">
+ <input placeholder="Buscar por nombre, profesión, especialidad…" bind:value={dirBusqueda} />
+ <select bind:value={dirFiltroEstado}>
+ <option value="">Todos los estados</option>
+ <option value="activo">activo</option>
+ <option value="inactivo">inactivo</option>
+ <option value="suspendido">suspendido</option>
+ </select>
+ <select bind:value={dirFiltroArea}>
+ <option value="">Todas las áreas</option>
+ {#each dirAreas as a}<option value={a}>{a}</option>{/each}
+ </select>
+ </div>
+
+ {#if dirNueva}
+ <h3>Registrar nuevo trabajador</h3>
+ <form class="exp-form" onsubmit={agregarTrabajador}>
  <div class="row">
- <label>Teléfono <input bind:value={expForm.telefono} /></label>
- <label>Domicilio <input bind:value={expForm.domicilio} /></label>
- <label>Profesión <input bind:value={expForm.profesion} /></label>
- <label>Especialidad <input bind:value={expForm.especialidad} /></label>
+ <label>Nombre completo <input bind:value={dirNuevo.nombre} required /></label>
+ <label>Email <input type="email" bind:value={dirNuevo.email} required /></label>
+ <label>Contraseña inicial <input type="password" bind:value={dirNuevo.password} required minlength="6" /></label>
  </div>
  <div class="row">
- <label>ID laboral <input bind:value={expForm.id_laboral} /></label>
- <label>Fecha de contratación <input bind:value={expForm.fecha_contratacion} type="date" /></label>
- <label>Estado laboral
- <select bind:value={expForm.estado_laboral}>
+ <label>Rol
+ <select bind:value={dirNuevo.rol}>
+ <option value="staff">Trabajador</option>
+ <option value="paciente">Paciente</option>
+ <option value="familiar">Familiar</option>
+ <option value="cuidador">Cuidador</option>
+ </select></label>
+ <label>Profesión <input bind:value={dirNuevo.profesion} /></label>
+ <label>Teléfono <input bind:value={dirNuevo.telefono} /></label>
+ </div>
+ <p class="muted small">Se creará la cuenta de acceso (ya aprobada) y el trabajador podrá iniciar sesión de inmediato.</p>
+ <div class="btns">
+ <button>Registrar trabajador</button>
+ <button type="button" class="ghost" onclick={() => (dirNueva = false)}>Cancelar</button>
+ </div>
+ </form>
+ {/if}
+
+ <table>
+ <thead><tr><th></th><th>Nombre</th><th>Profesión / especialidad</th><th>Teléfono</th><th>Email</th><th>Estado laboral</th><th>Ingreso</th><th></th></tr></thead>
+ <tbody>
+ {#each dirFiltrados as t (t.id)}
+ <tr class:dir-selected={dirSel?.id === t.id}>
+ <td>{#if t.avatar_url}<img class="dir-avatar" src={t.avatar_url} alt="" />{:else}<span class="dir-avatar dir-avatar-empty">{(t.nombre || t.email || '?').charAt(0).toUpperCase()}</span>{/if}</td>
+ <td>{t.nombre || '—'}</td>
+ <td>{[t.profesion, t.especialidad].filter(Boolean).join(' · ') || '—'}</td>
+ <td>{t.telefono || '—'}</td>
+ <td>{t.email}</td>
+ <td>
+ <select value={estadoLaboralDe(t)} onchange={(e) => cambiarEstadoLaboral(t, e.target.value)}>
+ <option value="activo">activo</option>
+ <option value="inactivo">inactivo</option>
+ <option value="suspendido">suspendido</option>
+ </select>
+ </td>
+ <td>{fmtFecha(t.fecha_contratacion)}</td>
+ <td class="acciones"><button class="mini" onclick={() => abrirExpediente(t)}>Expediente</button></td>
+ </tr>
+ {:else}<tr><td colspan="8" class="muted">Sin trabajadores{dirBusqueda || dirFiltroEstado || dirFiltroArea ? ' con esos filtros' : ''}</td></tr>{/each}
+ </tbody>
+ </table>
+
+ {#if dirSel}
+ <div class="expediente">
+ <div class="expediente-head">
+ <h3>Expediente — {dirSel.nombre || dirSel.email}</h3>
+ <div>
+ <button class="mini" onclick={() => window.print()}>Imprimir / PDF</button>
+ <button class="mini ghost" onclick={() => { dirVerHistorial = !dirVerHistorial; }}>Historial</button>
+ <button class="mini danger" onclick={() => eliminarTrabajador(dirSel)}>Eliminar</button>
+ <button class="mini ghost" onclick={cerrarExpediente}>Cerrar</button>
+ </div>
+ </div>
+ <form class="exp-form" onsubmit={(e) => { e.preventDefault(); guardarExpedienteDir(); }}>
+ {#each Object.entries(DIR_CAMPOS) as [seccion, campos]}
+ <h4>{DIR_TITULOS[seccion]}</h4>
+ <div class="row">
+ {#each campos as [f, label, tipo]}
+ <label>{label} <input bind:value={dirForm[f]} type={tipo || 'text'} /></label>
+ {/each}
+ </div>
+ {/each}
+ <h4>Estado laboral</h4>
+ <div class="row">
+ <label>Estado
+ <select bind:value={dirForm.estado_laboral}>
  <option value="activo">activo</option>
  <option value="inactivo">inactivo</option>
  <option value="suspendido">suspendido</option>
  </select></label>
+ <label>Rol
+ <select bind:value={dirForm.rol} disabled={dirSel.email === ADMIN_EMAIL}>
+ {#each opcionesRol(dirSel) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
+ </select></label>
+ <label>Disponibilidad en agenda <input bind:value={dirForm.disponibilidad} placeholder="Ej. mañanas, tiempo completo" /></label>
  </div>
+
+ <h4>Contacto de emergencia</h4>
+ {#each dirContactos as c, i}
+ <div class="contacto-card">
+ <div class="row">
+ <label>Nombre <input bind:value={c.nombre} /></label>
+ <label>Parentesco / relación <input bind:value={c.parentesco} placeholder="Ej. hija, vecino" /></label>
+ <label>Teléfono principal <input bind:value={c.telefono} type="tel" /></label>
+ {#if c.telefono}<a class="mini ghost" href="tel:{c.telefono}">Llamar</a>{/if}
+ </div>
+ <div class="row">
+ <label>Teléfono alternativo <input bind:value={c.telefono_alt} type="tel" /></label>
+ <label>Email (opcional) <input bind:value={c.email} type="email" /></label>
+ <label>Domicilio (opcional) <input bind:value={c.domicilio} /></label>
+ </div>
+ <div class="row">
+ <label>Observaciones <input bind:value={c.observaciones} /></label>
+ <label class="check"><input type="radio" checked={c.principal} onchange={() => marcarPrincipal(i)} /> Contacto principal</label>
+ <button type="button" class="mini danger" onclick={() => quitarContacto(i)}>Quitar</button>
+ </div>
+ </div>
+ {/each}
+ {#if dirContactos.length < 2}
+ <button type="button" class="mini ghost" onclick={agregarContacto}>Agregar contacto de emergencia ({dirContactos.length}/2)</button>
+ {/if}
+
+ {#if dirVerHistorial}
+ <h4>Historial de modificaciones</h4>
+ {#if dirHistorial.length}
+ <table class="historial">
+ <thead><tr><th>Fecha</th><th>Campo</th><th>Cambió de</th><th>a</th><th>Por</th></tr></thead>
+ <tbody>
+ {#each dirHistorial as h (h.id)}
+ <tr>
+ <td>{fmtFecha(h.created_at)}</td>
+ <td>{h.campo}</td>
+ <td class="muted">{h.valor_anterior}</td>
+ <td>{h.valor_nuevo}</td>
+ <td class="muted">{h.actor}</td>
+ </tr>
+ {/each}
+ </tbody>
+ </table>
+ {:else}<p class="muted small">Sin cambios registrados aún.</p>{/if}
+ {/if}
+
  <div class="btns">
  <button>Guardar expediente</button>
- <button type="button" class="ghost" onclick={() => (expId = null)}>Cancelar</button>
  </div>
  </form>
+ </div>
  {/if}
  </section>
 
@@ -820,6 +1060,24 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
  h2 { margin-top: 0; font-size: 1.05rem; }
  form { display: flex; flex-direction: column; gap:.75rem; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:.75rem; }
+.dir-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.dir-header h2 { margin: 0; }
+.dir-stats { display: flex; gap: .5rem; flex-wrap: wrap; margin: .6rem 0; }
+.chip { padding: .25rem .7rem; border-radius: 999px; font-size: .82rem; font-weight: 600; }
+.chip-activo { background: oklch(0.92 0.06 150); color: oklch(0.4 0.08 150); }
+.chip-inactivo { background: oklch(0.92 0.02 85); color: oklch(0.45 0.03 85); }
+.chip-suspendido { background: oklch(0.92 0.05 40); color: oklch(0.45 0.1 40); }
+.dir-filtros { margin: .6rem 0; }
+.dir-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; display: inline-flex; align-items: center; justify-content: center; background: oklch(0.9 0.04 80); color: oklch(0.4 0.06 250); font-weight: 700; font-size: .9rem; }
+.dir-selected td { background: oklch(0.96 0.02 140); }
+.expediente { margin-top: 1rem; border: 1px solid oklch(0.88 0.03 140); border-radius: 12px; padding: 1rem; background: oklch(0.985 0.008 140); }
+.expediente-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.expediente-head h3 { margin: 0; }
+.expediente-head > div { display: flex; gap: .4rem; flex-wrap: wrap; }
+.expediente h4 { margin: 1rem 0 .4rem; color: oklch(0.38 0.07 250); font-size: .95rem; }
+.contacto-card { border: 1px solid oklch(0.9 0.03 140); border-radius: 10px; padding: .6rem .8rem; margin-bottom: .6rem; background: #fff; }
+.check { display: flex; align-items: center; gap: .4rem; font-weight: 500; }
+.historial { font-size: .82rem; margin-top: .5rem; }
  label { display: flex; flex-direction: column; gap:.25rem; font-size:.85rem; font-weight: 600; }
  input, textarea, select { padding:.55rem.65rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
  button { padding:.6rem 1rem; border: 0; border-radius: 8px; background: oklch(0.42 0.068 218); color: #f2eee2; font-weight: 600; cursor: pointer; }
