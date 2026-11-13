@@ -154,15 +154,17 @@ async function enviarCodigo(email, codigo) {
 
 async function generarYEnviarCodigo(userId, email) {
   const codigo = nuevoCodigo();
-  await setVerifMeta(userId, {
-    verif_hash: hashCodigo(codigo),
-    verif_exp: Date.now() + CODE_TTL_MS,
-    verif_intentos: 0,
-    verif_ok: false
-  });
   const enviado = await enviarCodigo(email, codigo).catch((e) => {
     console.error('enviarCodigo:', e);
     return false;
+  });
+  await setVerifMeta(userId, {
+    // Si no hay SMTP configurado (o falló el envío), la cuenta queda
+    // verificada de inmediato para no bloquear el registro.
+    verif_hash: enviado ? hashCodigo(codigo) : null,
+    verif_exp: enviado ? Date.now() + CODE_TTL_MS : null,
+    verif_intentos: 0,
+    verif_ok: !enviado
   });
   return { codigo, enviado };
 }
@@ -182,10 +184,11 @@ app.post('/api/auth/register', async (req, res) => {
     if (error) return res.status(400).json({ error: error.message });
     const perfil = await ensurePerfil(data.user.id, email, nombre || null);
     const { codigo, enviado } = await generarYEnviarCodigo(data.user.id, email);
-    const resp = { requiere_verificacion: true, email };
-    // Sin SMTP configurado: en desarrollo devolvemos el código para poder probar el flujo
-    if (!enviado && process.env.NODE_ENV !== 'production') resp.dev_codigo = codigo;
-    res.json(resp);
+    // Sin SMTP el código no llega a ningún lado: devolver sesión directamente
+    if (!enviado) {
+      return res.json({ token: signToken({ id: data.user.id, email }), perfil });
+    }
+    res.json({ requiere_verificacion: true, email });
   } catch (e) {
     console.error('register:', e);
     res.status(500).json({ error: 'Error al registrar' });
