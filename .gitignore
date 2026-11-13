@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+.vercel/
+.env
+.env.local
+*.log
+.DS_Store
+coverage/
+*.apk
