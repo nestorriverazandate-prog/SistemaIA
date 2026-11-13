@@ -40,6 +40,7 @@
  }
 
  const esAdmin = $derived(perfil?.rol === 'admin');
+ const ADMIN_EMAIL = 'nestorriverazandate@gmail.com';
  const ROLES = [
  { valor: 'paciente', etiqueta: 'Paciente' },
  { valor: 'staff', etiqueta: 'Trabajador' },
@@ -47,6 +48,7 @@
  { valor: 'cuidador', etiqueta: 'Cuidador' },
  { valor: 'admin', etiqueta: 'Directivo' }
  ];
+ const opcionesRol = (u) => u.email === ADMIN_EMAIL ? ROLES.filter((r) => r.valor === 'admin') : ROLES.filter((r) => r.valor !== 'admin');
  const etiquetaRol = (r) => ROLES.find((x) => x.valor === r)?.etiqueta || r;
  const aprobado = $derived(perfil?.estado === 'aprobado' || esAdmin);
 
@@ -612,8 +614,8 @@
  <td>{u.email}</td>
  <td>{u.nombre || '—'}</td>
  <td>
- <select class="rol-select" value={u.rol} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
- {#each ROLES as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
+ <select class="rol-select" value={u.rol} disabled={u.email === ADMIN_EMAIL} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
+ {#each opcionesRol(u) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
  </select>
  </td>
  <td><span class="estado estado-{u.estado === 'aprobado'? 'completado': u.estado === 'rechazado'? 'cancelado': 'pendiente'}">{u.estado}</span></td>

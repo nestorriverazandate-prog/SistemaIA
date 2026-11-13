@@ -20,6 +20,8 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+// Cuenta única con permiso de rol Directivo (admin)
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'nestorriverazandate@gmail.com';
 const JWT_SECRET = process.env.JWT_SECRET || 'cambia-esto-en-produccion';
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim());
 
@@ -358,8 +360,19 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
     const { estado, rol } = req.body || {};
     const update = {};
     if (esAdminUser) {
+      // Solo la cuenta designada puede tener rol admin
+      if (rol) {
+        const { data: objetivo } = await supabase.from('perfiles').select('email').eq('id', req.params.id).maybeSingle();
+        const esCuentaAdmin = objetivo?.email === ADMIN_EMAIL;
+        if (rol === 'admin' && !esCuentaAdmin) {
+          return res.status(403).json({ error: 'Solo la cuenta administradora puede tener rol Directivo' });
+        }
+        if (esCuentaAdmin && rol !== 'admin') {
+          return res.status(403).json({ error: 'La cuenta administradora no puede cambiar de rol' });
+        }
+        if (['admin', 'paciente', 'staff', 'familiar', 'cuidador'].includes(rol)) update.rol = rol;
+      }
       if (estado && ['pendiente', 'aprobado', 'rechazado'].includes(estado)) update.estado = estado;
-      if (rol && ['admin', 'paciente', 'staff', 'familiar', 'cuidador'].includes(rol)) update.rol = rol;
       for (const f of PERFIL_EXPEDIENTE) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
     } else {
       for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
