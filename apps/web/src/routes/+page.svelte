@@ -302,6 +302,56 @@
  qrImg = await QRCode.toDataURL(token, { width: 320, margin: 2 });
  qrModal = p;
  }
+ // Generar e imprimir QR de todos los pacientes (hoja para recortar)
+ let generandoQRs = $state(false);
+ async function imprimirTodosQR() {
+ formError = ''; formOk = '';
+ generandoQRs = true;
+ try {
+ // Asegurar token en cada paciente (los antiguos se generan y guardan)
+ for (const p of pacientes) {
+ if (!p.qr_token) {
+ const token = `AGI-${crypto.randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
+ const { paciente } = await api.actualizarPaciente(p.id, { qr_token: token });
+ const idx = pacientes.findIndex((x) => x.id === p.id);
+ if (idx >= 0) pacientes[idx] = paciente;
+ }
+ }
+ const items = [];
+ for (const p of pacientes) {
+ if (!p.qr_token) continue;
+ const img = await QRCode.toDataURL(p.qr_token, { width: 200, margin: 1 });
+ items.push({ img, nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim(), token: p.qr_token });
+ }
+ if (!items.length) { formError = 'No hay pacientes para generar QR'; return; }
+ const w = window.open('', '_blank', 'width=900,height=700');
+ const tarjetas = items.map((it) => `
+ <div class="card-qr">
+ <img src="/logo.png" class="logo" alt="" />
+ <img src="${it.img}" alt="QR" />
+ <strong>${it.nombre}</strong>
+ <span>ID: ${it.token}</span>
+ <p>Código de identificación del domicilio.<br/>Exclusivo para el registro de visitas del personal autorizado.</p>
+ </div>`).join('');
+ w.document.write(`<html><head><title>QR domicilios</title><style>
+ body{font-family:system-ui;margin:16px}h1{font-size:18px;color:#234;text-align:center}
+ .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+ .card-qr{border:1px solid #ccc;border-radius:10px;padding:10px;text-align:center;page-break-inside:avoid}
+ .card-qr img.qr, .card-qr img[alt="QR"]{width:140px;height:140px;image-rendering:pixelated}
+ .logo{height:36px}.card-qr strong{display:block;font-size:13px;margin-top:4px}
+ .card-qr span{font-size:10px;color:#666}.card-qr p{font-size:9px;color:#777;margin-top:4px}
+ @media print{body{margin:0}.grid{gap:10px}}
+ </style></head><body>
+ <h1>Agencia Gerontológica Integral — Códigos QR de domicilios</h1>
+ <div class="grid">${tarjetas}</div>
+ <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+ </body></html>`);
+ w.document.close();
+ formOk = `${items.length} códigos QR listos para imprimir`;
+ } catch (e) { formError = e.message; }
+ finally { generandoQRs = false; }
+ }
+
  function cerrarQR() { qrModal = null; qrImg = ''; qrToken = ''; }
  function descargarQR() {
  const a = document.createElement('a');
@@ -596,7 +646,9 @@
  </section>
 
  <section class="card">
- <h2>Pacientes ({pacientes.length})</h2>
+ <h2>Pacientes ({pacientes.length})
+ <button class="mini ghost" onclick={imprimirTodosQR} disabled={generandoQRs}>{generandoQRs ? 'Generando…' : 'Imprimir todos los QR'}</button>
+ </h2>
  <table>
  <thead>
  <tr><th>Paciente</th><th>Edad</th><th>Servicio</th><th>Estado</th><th></th><th></th></tr>
