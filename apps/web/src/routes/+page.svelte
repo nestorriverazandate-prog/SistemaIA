@@ -59,7 +59,12 @@
  user = { email: data.perfil?.email || email };
  perfil = data.perfil || null;
  password = '';
- if (aprobado) await cargar();
+ if (aprobado) {
+ await cargar();
+ // Si el empleado llegó desde un QR, continuar al registro de visita
+ const pendiente = sessionStorage.getItem('qr_pending');
+ if (pendiente) { sessionStorage.removeItem('qr_pending'); window.location.href = `/registrar?t=${encodeURIComponent(pendiente)}`; }
+ }
  }
 
  async function cargar() {
@@ -303,7 +308,7 @@
  } catch (e) { formError = e.message; return; }
  }
  qrToken = token;
- qrImg = await QRCode.toDataURL(token, { width: 320, margin: 2 });
+ qrImg = await QRCode.toDataURL(`${window.location.origin}/registrar?t=${token}`, { width: 320, margin: 2 });
  qrModal = p;
  }
  // Generar e imprimir QR de todos los pacientes (hoja para recortar)
@@ -327,7 +332,7 @@
  const items = [];
  for (const p of pacientes) {
  if (!p.qr_token) continue;
- const img = await QRCode.toDataURL(p.qr_token, { width: 200, margin: 1 });
+ const img = await QRCode.toDataURL(`${window.location.origin}/registrar?t=${p.qr_token}`, { width: 200, margin: 1 });
  items.push({ img, nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim(), token: p.qr_token });
  }
  if (!items.length) { formError = 'No hay pacientes para generar QR'; return; }

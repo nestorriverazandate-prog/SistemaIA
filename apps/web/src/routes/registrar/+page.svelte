@@ -102,10 +102,14 @@
  }
 
  onMount(async () => {
- if (!getToken()) { loading = false; return; }
+ // Token desde el QR: ?t=AGI-XXXX o pendiente tras login
+ const t = new URLSearchParams(window.location.search).get('t') || sessionStorage.getItem('qr_pending') || '';
+ if (t) { sessionStorage.removeItem('qr_pending'); tokenActual = tokenDe(t); }
+ if (!getToken()) { loading = false; if (tokenActual) sessionStorage.setItem('qr_pending', tokenActual); return; }
  try { const { user: me } = await api.me(); perfil = me.perfil; especialidad = me.perfil?.especialidad || ''; }
  catch { setToken(null); }
  loading = false;
+ if (tokenActual) consultarDomicilio();
  });
  onDestroy(() => { detenerEscaner(); });
 </script>
@@ -115,7 +119,11 @@
 {#if loading}
  <main class="card center"><p>Cargando…</p></main>
 {:else if !perfil}
- <main class="card center"><h1>Inicia sesión</h1><a class="ghost link" href="/">Ir al login</a></main>
+ <main class="card center">
+ <h1>Inicia sesión para registrar la visita</h1>
+ <p class="muted">Escaneaste el código del domicilio. Inicia sesión con tu cuenta de empleado para marcar la entrada o salida.</p>
+ <a class="ghost link" href="/">Ir al login</a>
+ </main>
 {:else}
 <header>
  <div class="brand">
