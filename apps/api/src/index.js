@@ -1566,7 +1566,7 @@ app.post('/api/auth/restablecer', async (req, res) => {
 // ---------- Frontend estático (solo en ejecución local; en Vercel el web es otro servicio) ----------
 const webBuild = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/build');
 if (existsSync(webBuild)) {
-  app.use(express.static(webBuild));
+  app.use(express.static(webBuild, { extensions: ['html'] }));
   // SPA fallback: cualquier ruta que no sea /api devuelve index.html
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(webBuild, 'index.html')));
 }
