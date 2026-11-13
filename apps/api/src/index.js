@@ -731,6 +731,7 @@ app.get('/api/visitas', requireUser, async (req, res) => {
     const { data, error } = await q;
     if (error) throw error;
     if (puedeVerTodas(req)) {
+      monitorVisitasThrottled(); // el mapa del admin hace polling: dispara el monitor
       auditarConsulta(req); // quién consulta ubicaciones de trabajadores
       const authMap = await authUsersMap();
       for (const v of data || []) {
@@ -796,6 +797,8 @@ app.post('/api/visitas/:id/ping', requireUser, async (req, res) => {
 
     const { data: pac } = await supabase.from('pacientes').select('nombre, apellido, direccion, lat, lng').eq('id', v.paciente_id).single();
     if (!pac || pac.lat == null) return res.status(400).json({ error: 'Paciente sin georreferencia' });
+
+    monitorVisitasThrottled(); // actividad GPS real: aprovecha para correr el monitor
 
     const d = distanciaM(la, ln, pac.lat, pac.lng);
     const ahora = new Date();
@@ -1009,7 +1012,18 @@ async function monitorVisitas() {
   }
 }
 
-// En Vercel el setInterval no corre entre invocaciones: se ejecuta vía cron
+// En serverless no hay setInterval confiable: se dispara con throttle desde
+// eventos reales (ping GPS del trabajador, polling del mapa del admin)
+let _monitorLastRun = 0;
+function monitorVisitasThrottled() {
+  const now = Date.now();
+  if (now - _monitorLastRun < 60 * 1000) return;
+  _monitorLastRun = now;
+  monitorVisitas().catch((e) => console.error('monitor throttled:', e));
+}
+
+// En Vercel el cron de Hobby solo corre 1 vez al día; el monitoreo fino
+// ocurre aquí, disparado por la actividad GPS real
 app.post('/api/cron/monitor', async (req, res) => {
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'No autorizado' });
