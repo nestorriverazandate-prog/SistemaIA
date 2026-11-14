@@ -422,6 +422,12 @@
  catch (e) { formError = e.message; }
  }
 
+ async function eliminarUsuario(u) {
+ if (!confirm(`¿Eliminar a ${u.nombre || u.email}? Se borrará su cuenta de acceso. Esta acción no se puede deshacer.`)) return;
+ try { await api.eliminarTrabajador(u.id); await cargar(); }
+ catch (e) { formError = e.message; }
+ }
+
  const noLeidas = $derived(notifs.filter(n => !n.leida).length);
 
  async function cargarNotifs() {
@@ -696,6 +702,9 @@
  <button class="mini ghost" onclick={() => cambiarPerfil(u.id, { estado: 'rechazado' })}>Rechazar</button>
  {/if}
  <a class="mini ghost" href="/personal">Expediente</a>
+ {#if u.email !== ADMIN_EMAIL && u.id !== perfil.id}
+ <button class="mini danger" onclick={() => eliminarUsuario(u)}>Eliminar</button>
+ {/if}
  </td>
  </tr>
  {:else}
