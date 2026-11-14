@@ -76,7 +76,6 @@
  if (esAdmin) {
  const r = await api.perfiles();
  perfiles = r.perfiles;
- cargarPaquetes();
  } else {
  const v = await api.visitas().catch(() => ({ visitas: [] }));
  misVisitas = v.visitas || [];
@@ -423,27 +422,6 @@
  catch (e) { formError = e.message; }
  }
 
- // Paquetes / servicios
- let paquetes = $state([]);
- let formPaquete = $state({ nombre: '', descripcion: '', precio: '', duracion_min: 60 });
- async function cargarPaquetes() {
- try { const r = await api.paquetes(); paquetes = r.paquetes || []; } catch { /* tabla puede no existir aún */ }
- }
- async function crearPaquete(e) {
- e.preventDefault();
- formError = ''; formOk = '';
- try {
- await api.crearPaquete(formPaquete);
- formOk = 'Paquete creado';
- formPaquete = { nombre: '', descripcion: '', precio: '', duracion_min: 60 };
- await cargarPaquetes();
- } catch (err) { formError = err.message; }
- }
- async function togglePaquete(p) {
- try { await api.actualizarPaquete(p.id, { activo: !p.activo }); await cargarPaquetes(); }
- catch (e) { formError = e.message; }
- }
-
  const noLeidas = $derived(notifs.filter(n => !n.leida).length);
 
  async function cargarNotifs() {
@@ -595,6 +573,7 @@
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
  <a class="ghost link" href="/personal">Personal</a>
+ <a class="ghost link" href="/paquetes">Paquetes</a>
  <div class="notif-wrap">
  <button class="ghost bell" onclick={() => (notifAbiertas = !notifAbiertas)}>
  Notificaciones{#if noLeidas}<span class="notif-count">{noLeidas}</span>{/if}
@@ -725,36 +704,6 @@
  </tbody>
  </table>
 
- </section>
-
-
- <section class="card wide">
- <h2>Paquetes y servicios ({paquetes.length})</h2>
- <table>
- <thead><tr><th>Nombre</th><th>Descripción</th><th>Precio</th><th>Duración</th><th>Estado</th><th></th></tr></thead>
- <tbody>
- {#each paquetes as p (p.id)}
- <tr>
- <td>{p.nombre}</td>
- <td>{p.descripcion || '—'}</td>
- <td>{p.precio != null ? '$' + Number(p.precio).toFixed(2) : '—'}</td>
- <td>{p.duracion_min != null ? p.duracion_min + ' min' : '—'}</td>
- <td>{p.activo ? 'activo' : 'inactivo'}</td>
- <td><button class="mini ghost" onclick={() => togglePaquete(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button></td>
- </tr>
- {:else}<tr><td colspan="6" class="muted">Sin paquetes — crea el primero abajo</td></tr>{/each}
- </tbody>
- </table>
- <h3>Nuevo paquete</h3>
- <form class="exp-form" onsubmit={crearPaquete}>
- <div class="row">
- <label>Nombre <input bind:value={formPaquete.nombre} required /></label>
- <label>Precio <input bind:value={formPaquete.precio} type="number" min="0" step="0.01" /></label>
- <label>Duración (min) <input bind:value={formPaquete.duracion_min} type="number" min="15" /></label>
- </div>
- <label>Descripción <textarea bind:value={formPaquete.descripcion} rows="2"></textarea></label>
- <button>Crear paquete</button>
- </form>
  </section>
  {/if}
  </main>
