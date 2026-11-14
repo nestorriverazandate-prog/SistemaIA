@@ -29,7 +29,8 @@
   let gpsMsg = $state('');
   let trabajadorEstado = $state('en_camino');
   let notaId = $state(null);
-  let notaForm = $state({ actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '' });
+  let notaForm = $state({ actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '', sesion: '', especialidad: '' });
+  let notaFotos = $state([]); // [{data: dataURL, nombre, descripcion}]
   let notaMsg = $state('');
 
   const esAdmin = $derived(me?.perfil?.rol === 'admin' || me?.perfil?.rol === 'staff');
@@ -95,13 +96,27 @@
     return `https://www.google.com/maps?q=${p.lat},${p.lng}`;
   }
 
+  function agregarFotosNota(e) {
+    const files = [...(e.target.files || [])].slice(0, 6 - notaFotos.length);
+    for (const f of files) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        notaFotos = [...notaFotos, { data: reader.result, nombre: f.name, descripcion: '' }];
+      };
+      reader.readAsDataURL(f);
+    }
+    e.target.value = '';
+  }
+  function quitarFotoNota(i) { notaFotos = notaFotos.filter((_, idx) => idx !== i); }
+
   async function guardarNota(v) {
     error = ''; notaMsg = '';
     try {
-      await api.notaVisita(v.id, notaForm);
-      notaMsg = 'Nota de atención guardada en el expediente';
+      await api.notaVisita(v.id, { ...notaForm, fotos: notaFotos });
+      notaMsg = 'Nota de atención enviada — el directivo fue notificado';
       notaId = null;
-      notaForm = { actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '' };
+      notaForm = { actividades: '', observaciones: '', evolucion: '', incidencias: '', recomendaciones: '', material: '', sesion: '', especialidad: '' };
+      notaFotos = [];
     } catch (e) { error = e.message; }
   }
 
@@ -310,6 +325,23 @@
               <label>Incidencias <textarea rows="2" bind:value={notaForm.incidencias}></textarea></label>
               <label>Recomendaciones <textarea rows="2" bind:value={notaForm.recomendaciones}></textarea></label>
               <label>Material utilizado <input bind:value={notaForm.material} /></label>
+              <label>Sesión realizada <input bind:value={notaForm.sesion} placeholder="Ej: Higiene y cuidado personal" /></label>
+              <label>Especialidad / disciplina <input bind:value={notaForm.especialidad} /></label>
+              <div class="fotos-row">
+                <label class="foto-btn">Adjuntar evidencias (fotos) <input type="file" accept="image/*" multiple hidden onchange={agregarFotosNota} /></label>
+                <span class="muted small">{notaFotos.length}/6 fotos</span>
+              </div>
+              {#if notaFotos.length}
+                <div class="fotos-prev">
+                  {#each notaFotos as f, i}
+                    <div class="foto-prev">
+                      <img src={f.data} alt="" />
+                      <input placeholder="Descripción" bind:value={notaFotos[i].descripcion} />
+                      <button type="button" class="mini danger" onclick={() => quitarFotoNota(i)}>Quitar</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
               {#if notaMsg}<p class="ok">{notaMsg}</p>{/if}
               <button onclick={() => guardarNota(v)}>Guardar nota</button>
             </div>
@@ -352,6 +384,12 @@
   .estado-btns .mini.active { background: #135666; color: #f2eee2; border-color: #135666; }
   .acc-actions { display: flex; gap: .4rem; margin-top: .5rem; }
   .nota-form { display: flex; flex-direction: column; gap: .5rem; margin-top: .7rem; border-top: 1px solid oklch(0.93 0.025 140); padding-top: .7rem; }
+  .fotos-row { display: flex; align-items: center; gap: .7rem; }
+  .foto-btn { display: inline-block; padding: .4rem .8rem; border: 1px dashed oklch(0.6 0.05 222); border-radius: 8px; cursor: pointer; font-size: .85rem; }
+  .fotos-prev { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .foto-prev { width: 110px; display: flex; flex-direction: column; gap: .25rem; }
+  .foto-prev img { width: 110px; height: 80px; object-fit: cover; border-radius: 6px; }
+  .foto-prev input { font-size: .75rem; padding: .3rem; }
   .nota-form label { font-size: .8rem; }
   .nota-form textarea, .nota-form input { padding: .45rem .55rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
   a.ghost, button.ghost { background: transparent; color: inherit; border: 1px solid oklch(0.45 0.03 225); border-radius: 8px; padding: .45rem .8rem; text-decoration: none; font-weight: 600; font-size: .85rem; cursor: pointer; }

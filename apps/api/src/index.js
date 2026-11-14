@@ -26,7 +26,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'nestorriverazandate@gmail.com';
 const JWT_SECRET = process.env.JWT_SECRET || 'cambia-esto-en-produccion';
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim());
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '12mb' }));
 app.use(cors({ origin: CORS_ORIGINS }));
 
 // ---------- Clientes ----------
@@ -1471,13 +1471,28 @@ async function appendToDriveDoc(p) {
 }
 
 // ---------- Notas de atención del empleado ----------
+// Bucket privado de evidencias fotográficas (se crea solo si no existe)
+let bucketEvidenciasOk = null;
+async function asegurarBucketEvidencias() {
+  if (bucketEvidenciasOk !== null) return bucketEvidenciasOk;
+  const { error } = await supabase.storage.createBucket('evidencias', { public: false });
+  bucketEvidenciasOk = !error || /already exists|duplicate/i.test(error.message || '');
+  return bucketEvidenciasOk;
+}
+
+function dataUrlABuffer(dataUrl) {
+  const m = /^data:([^;]+);base64,(.+)$/.exec(String(dataUrl || ''));
+  if (!m) return null;
+  return { mime: m[1], buffer: Buffer.from(m[2], 'base64') };
+}
+
 app.post('/api/visitas/:id/nota', requireUser, async (req, res) => {
   try {
     const { data: v } = await supabase.from('visitas').select('*').eq('id', req.params.id).maybeSingle();
     if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
     const esPropia = v.trabajador_id === req.user.id;
     if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Solo el trabajador asignado' });
-    const campos = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material'];
+    const campos = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material', 'sesion', 'especialidad'];
     const nota = {};
     for (const c of campos) if (req.body[c] != null) nota[c] = String(req.body[c]).slice(0, 4000);
     if (!Object.keys(nota).length) return res.status(400).json({ error: 'Escribe al menos un campo' });
@@ -1485,8 +1500,42 @@ app.post('/api/visitas/:id/nota', requireUser, async (req, res) => {
       visita_id: v.id, paciente_id: v.paciente_id, trabajador_id: req.user.id, ...nota
     }).select().single();
     if (error) throw error;
-    await logEvento(v.id, 'nota_atencion', { por: req.user.email });
-    res.status(201).json({ nota: data });
+
+    // Evidencias fotográficas → Supabase Storage privado + tabla evidencias
+    const fotos = Array.isArray(req.body.fotos) ? req.body.fotos.slice(0, 6) : [];
+    const evidencias = [];
+    if (fotos.length) {
+      const ok = await asegurarBucketEvidencias();
+      if (ok) {
+        for (let i = 0; i < fotos.length; i++) {
+          const f = fotos[i] || {};
+          const parsed = dataUrlABuffer(f.data);
+          if (!parsed || parsed.buffer.length > 8 * 1024 * 1024) continue;
+          const ext = parsed.mime.includes('png') ? 'png' : 'jpg';
+          const path = `${v.id}/${data.id}/${Date.now()}-${i}.${ext}`;
+          const up = await supabase.storage.from('evidencias').upload(path, parsed.buffer, { contentType: parsed.mime, upsert: false });
+          if (up.error) { console.error('upload evidencia:', up.error.message); continue; }
+          const { data: ev, error: evErr } = await supabase.from('evidencias').insert({
+            nota_id: data.id, visita_id: v.id, paciente_id: v.paciente_id, trabajador_id: req.user.id,
+            storage_path: path, descripcion: String(f.descripcion || '').slice(0, 500), nombre_archivo: String(f.nombre || `evidencia-${i + 1}.${ext}`).slice(0, 200)
+          }).select().single();
+          if (!evErr && ev) evidencias.push(ev);
+        }
+      }
+    }
+
+    await logEvento(v.id, 'nota_atencion', { por: req.user.email, evidencias: evidencias.length });
+
+    // Notificación inmediata al directivo
+    const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', v.paciente_id).maybeSingle();
+    const { data: prof } = await supabase.from('perfiles').select('nombre, profesion, especialidad').eq('id', req.user.id).maybeSingle();
+    const quien = prof?.nombre || req.user.email;
+    const disc = prof?.especialidad || prof?.profesion || 'Atención general';
+    const pacNom = pac ? `${pac.nombre || ''} ${pac.apellido || ''}`.trim() : 'paciente';
+    await notifyAdmins('evolucion', `Nuevo reporte de evolución recibido: ${quien} atendió a ${pacNom} — ${disc}${evidencias.length ? ` · ${evidencias.length} foto(s)` : ''}`, v, {
+      nota_id: data.id, trabajador: quien, paciente: pacNom, disciplina: disc, evidencias: evidencias.length
+    });
+    res.status(201).json({ nota: data, evidencias });
   } catch (e) {
     console.error('POST nota:', e);
     res.status(500).json({ error: 'Error al guardar nota' });
@@ -1504,6 +1553,139 @@ app.get('/api/visitas/:id/notas', requireUser, async (req, res) => {
   } catch (e) {
     console.error('GET notas:', e);
     res.status(500).json({ error: 'Error al obtener notas' });
+  }
+});
+
+// ---------- Seguimiento de evolución (directivo) ----------
+app.get('/api/seguimiento', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const [{ data: notas, error: e1 }, { data: evidencias, error: e2 }] = await Promise.all([
+      supabase.from('notas_atencion').select('*').order('created_at', { ascending: false }).limit(500),
+      supabase.from('evidencias').select('*').order('created_at', { ascending: false }).limit(2000)
+    ]);
+    if (e1) throw e1;
+    if (e2 && !/does not exist|relation/i.test(e2.message || '')) throw e2;
+
+    const idsPac = [...new Set((notas || []).map((n) => n.paciente_id).filter(Boolean))];
+    const idsTrab = [...new Set((notas || []).map((n) => n.trabajador_id).filter(Boolean))];
+    const idsVis = [...new Set((notas || []).map((n) => n.visita_id).filter(Boolean))];
+    const [{ data: pacs }, { data: profs }, { data: viss }] = await Promise.all([
+      idsPac.length ? supabase.from('pacientes').select('id, nombre, apellido, direccion').in('id', idsPac) : { data: [] },
+      idsTrab.length ? supabase.from('perfiles').select('id, nombre, profesion, especialidad').in('id', idsTrab) : { data: [] },
+      idsVis.length ? supabase.from('visitas').select('id, fecha, hora_programada, llegada_at, salida_at, estado').in('id', idsVis) : { data: [] }
+    ]);
+    const pacMap = new Map((pacs || []).map((p) => [p.id, p]));
+    const profMap = new Map((profs || []).map((p) => [p.id, p]));
+    const visMap = new Map((viss || []).map((v) => [v.id, v]));
+    const evPorNota = new Map();
+    for (const ev of evidencias || []) {
+      if (!evPorNota.has(ev.nota_id)) evPorNota.set(ev.nota_id, []);
+      evPorNota.get(ev.nota_id).push(ev);
+    }
+
+    const items = (notas || []).map((n) => {
+      const p = pacMap.get(n.paciente_id) || {};
+      const t = profMap.get(n.trabajador_id) || {};
+      const v = visMap.get(n.visita_id) || {};
+      return {
+        ...n,
+        paciente: p, trabajador: t, visita: v,
+        disciplina: t.especialidad || t.profesion || null,
+        evidencias: (evPorNota.get(n.id) || []).map((e) => ({ id: e.id, descripcion: e.descripcion, nombre_archivo: e.nombre_archivo, created_at: e.created_at }))
+      };
+    });
+
+    // Indicadores
+    const ahora = Date.now();
+    const hace30 = ahora - 30 * 86400000;
+    const stats = {
+      sesiones: viss.length,
+      notas: items.length,
+      pendientes: items.filter((n) => !n.revisado).length,
+      revisadas: items.filter((n) => n.revisado).length,
+      fotos: (evidencias || []).length,
+      por_trabajador: {},
+      pacientes_periodo: new Set(items.filter((n) => new Date(n.created_at).getTime() >= hace30).map((n) => n.paciente_id)).size
+    };
+    for (const n of items) {
+      const k = n.trabajador?.nombre || n.trabajador?.email || 'Desconocido';
+      stats.por_trabajador[k] = (stats.por_trabajador[k] || 0) + 1;
+    }
+    res.json({ notas: items, stats });
+  } catch (e) {
+    console.error('GET seguimiento:', e);
+    res.status(500).json({ error: 'Error al obtener seguimiento' });
+  }
+});
+
+// Revisión del directivo: marcar revisado / comentar / solicitar corrección
+app.patch('/api/notas/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const update = {};
+    if (req.body.revisado != null) { update.revisado = !!req.body.revisado; update.revisado_at = new Date().toISOString(); update.revisado_por = req.user.email; }
+    if (req.body.comentario_admin != null) update.comentario_admin = String(req.body.comentario_admin).slice(0, 2000);
+    if (req.body.correccion != null) update.correccion = String(req.body.correccion).slice(0, 2000);
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    let { data, error } = await supabase.from('notas_atencion').update(update).eq('id', req.params.id).select().single();
+    if (error && /revisado|comentario_admin|correccion|PGRST204|column/i.test(error.message || '')) {
+      // Columnas nuevas pueden no existir aún → reintentar solo con las básicas
+      const base = {};
+      if (update.revisado != null) base.revisado = update.revisado;
+      const limpio = Object.keys(base).length ? base : {};
+      if (!Object.keys(limpio).length) return res.status(400).json({ error: 'Columnas de revisión no existen: ejecuta el SQL en Supabase' });
+      ({ data, error } = await supabase.from('notas_atencion').update(limpio).eq('id', req.params.id).select().single());
+    }
+    if (error) throw error;
+    if (req.body.correccion) {
+      const { data: n } = await supabase.from('notas_atencion').select('trabajador_id, paciente_id, visita_id').eq('id', req.params.id).maybeSingle();
+      if (n?.trabajador_id) {
+        await supabase.from('notificaciones').insert({
+          destinatario_id: n.trabajador_id, tipo: 'correccion',
+          mensaje: `El directivo solicitó una corrección en tu reporte de evolución: ${String(req.body.correccion).slice(0, 140)}`,
+          visita_id: n.visita_id, datos: { nota_id: req.params.id }
+        });
+        broadcast({ tipo: 'notificacion', datos: { tipo: 'correccion' } });
+      }
+    }
+    res.json({ nota: data });
+  } catch (e) {
+    console.error('PATCH nota:', e);
+    res.status(500).json({ error: 'Error al actualizar nota' });
+  }
+});
+
+// Evidencias de una nota (solo admin o el trabajador dueño)
+app.get('/api/notas/:id/evidencias', requireUser, async (req, res) => {
+  try {
+    const { data: n } = await supabase.from('notas_atencion').select('trabajador_id').eq('id', req.params.id).maybeSingle();
+    if (!n) return res.status(404).json({ error: 'Nota no encontrada' });
+    if (n.trabajador_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.from('evidencias').select('*').eq('nota_id', req.params.id).order('created_at');
+    if (error) {
+      if (/does not exist|relation/i.test(error.message || '')) return res.json({ evidencias: [] });
+      throw error;
+    }
+    res.json({ evidencias: data || [] });
+  } catch (e) {
+    console.error('GET evidencias:', e);
+    res.status(500).json({ error: 'Error al obtener evidencias' });
+  }
+});
+
+// URL firmada temporal para ver/descargar una evidencia (privada)
+app.get('/api/evidencias/:id/archivo', requireUser, async (req, res) => {
+  try {
+    const { data: ev } = await supabase.from('evidencias').select('*').eq('id', req.params.id).maybeSingle();
+    if (!ev) return res.status(404).json({ error: 'Evidencia no encontrada' });
+    if (ev.trabajador_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso — solo personal autorizado' });
+    const { data, error } = await supabase.storage.from('evidencias').createSignedUrl(ev.storage_path, 3600);
+    if (error) throw error;
+    res.json({ url: data.signedUrl });
+  } catch (e) {
+    console.error('GET evidencia archivo:', e);
+    res.status(500).json({ error: 'No se pudo generar el enlace' });
   }
 });
 

@@ -148,6 +148,29 @@ create table if not exists public.notas_atencion (
 create index if not exists notas_atencion_visita_idx on public.notas_atencion (visita_id);
 create index if not exists notas_atencion_paciente_idx on public.notas_atencion (paciente_id);
 
+alter table public.notas_atencion
+  add column if not exists sesion text,
+  add column if not exists especialidad text,
+  add column if not exists revisado boolean not null default false,
+  add column if not exists revisado_at timestamptz,
+  add column if not exists revisado_por text,
+  add column if not exists comentario_admin text,
+  add column if not exists correccion text;
+
+create table if not exists public.evidencias (
+  id uuid primary key default gen_random_uuid(),
+  nota_id uuid not null references public.notas_atencion (id) on delete cascade,
+  visita_id uuid references public.visitas (id) on delete cascade,
+  paciente_id uuid references public.pacientes (id) on delete cascade,
+  trabajador_id uuid references public.perfiles (id) on delete set null,
+  storage_path text not null,
+  descripcion text,
+  nombre_archivo text,
+  created_at timestamptz not null default now()
+);
+create index if not exists evidencias_nota_idx on public.evidencias (nota_id);
+create index if not exists evidencias_paciente_idx on public.evidencias (paciente_id);
+
 create table if not exists public.incidencias_gps (
   id uuid primary key default gen_random_uuid(),
   visita_id uuid references public.visitas (id) on delete cascade,
@@ -204,6 +227,7 @@ alter table public.incidencias_gps enable row level security;
 alter table public.paquetes enable row level security;
 alter table public.geocercas enable row level security;
 alter table public.perfiles_historial enable row level security;
+alter table public.evidencias enable row level security;
 
 -- ============================================================
 -- FIN — si todo sale en verde, la plataforma queda completa.
