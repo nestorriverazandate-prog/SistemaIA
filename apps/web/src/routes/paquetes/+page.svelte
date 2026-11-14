@@ -13,22 +13,27 @@
 
  const AREAS = ['Gerontología', 'Enfermería', 'Nutrición', 'Fisioterapia', 'Médico', 'Trabajo social', 'Odontología', 'Psicología', 'Marketing', 'Abogado', 'Agencia de viajes'];
  const estadoDe = (t) => t.estado_laboral || 'activo';
+ const serviciosTxt = $derived((formPaquete.servicios || '').toLowerCase());
+ const areaElegida = (a) => serviciosTxt.includes(a.toLowerCase());
+ const profElegido = (t) => !!t.nombre && serviciosTxt.includes(t.nombre.toLowerCase());
 
  function agregarArea(area) {
-  const actual = formPaquete.servicios.trim();
-  const lineas = actual ? actual.split('\n') : [];
-  if (!lineas.some((l) => l.trim().toLowerCase() === area.toLowerCase())) {
-   formPaquete.servicios = [...lineas, `• ${area}`].join('\n');
-  }
+  const lineas = (formPaquete.servicios.trim() ? formPaquete.servicios.split('\n') : [])
+   .filter((l) => l.trim());
+  const idx = lineas.findIndex((l) => l.trim().toLowerCase() === `• ${area}`.toLowerCase());
+  if (idx >= 0) lineas.splice(idx, 1);
+  else lineas.push(`• ${area}`);
+  formPaquete.servicios = lineas.join('\n');
  }
  function agregarProfesional(t) {
   const texto = `${t.nombre || ''}${t.profesion ? ' — ' + t.profesion : ''}${t.especialidad ? ' (' + t.especialidad + ')' : ''}`.trim();
   if (!texto) return;
-  const actual = formPaquete.servicios.trim();
-  const lineas = actual ? actual.split('\n') : [];
-  if (!lineas.some((l) => l.includes(t.nombre))) {
-   formPaquete.servicios = [...lineas, `• ${texto}`].join('\n');
-  }
+  const lineas = (formPaquete.servicios.trim() ? formPaquete.servicios.split('\n') : [])
+   .filter((l) => l.trim());
+  const idx = lineas.findIndex((l) => t.nombre && l.toLowerCase().includes(t.nombre.toLowerCase()));
+  if (idx >= 0) lineas.splice(idx, 1);
+  else lineas.push(`• ${texto}`);
+  formPaquete.servicios = lineas.join('\n');
  }
 
  async function cargarPaquetes() {
@@ -119,7 +124,7 @@
  <h3>Áreas profesionales disponibles</h3>
  <div class="chips">
  {#each AREAS as a}
- <button type="button" class="chip" onclick={() => agregarArea(a)}>+ {a}</button>
+ <button type="button" class="chip" class:elegido={areaElegida(a)} onclick={() => agregarArea(a)}>+ {a}</button>
  {/each}
  </div>
 
@@ -127,7 +132,7 @@
  {#if equipo.length}
  <div class="equipo-grid">
  {#each equipo.filter((t) => estadoDe(t) === 'activo') as t (t.id)}
- <button type="button" class="equipo-card" onclick={() => agregarProfesional(t)} title="Agregar al paquete">
+ <button type="button" class="equipo-card" class:elegido={profElegido(t)} onclick={() => agregarProfesional(t)} title="Agregar al paquete">
  <strong>{t.nombre || t.email}</strong>
  <span>{[t.profesion, t.especialidad].filter(Boolean).join(' · ') || 'Sin especialidad'}</span>
  <em>{t.puesto || 'Trabajador'}</em>
@@ -184,6 +189,11 @@
  .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
  .chip { background: #eef4f8; color: oklch(0.35 0.08 222); border: 1px solid #cfdde6; }
  .chip:hover { background: oklch(0.9 0.03 222); }
+ .chip.elegido { background: oklch(0.45 0.12 222); color: #fff; border-color: oklch(0.45 0.12 222); }
+ .chip.elegido::before { content: '✓ '; }
+ .equipo-card.elegido { background: oklch(0.45 0.12 222); border-color: oklch(0.45 0.12 222); }
+ .equipo-card.elegido strong, .equipo-card.elegido span, .equipo-card.elegido em { color: #f2eee2; }
+ .equipo-card.elegido::after { content: '✓ agregado'; font-size: .72rem; color: #bfe3ff; font-style: normal; }
  .equipo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .6rem; margin: .4rem 0 1rem; }
  .equipo-card { display: grid; gap: .2rem; text-align: left; background: #fbf9f4; color: #1c2733; border: 1px solid #e0d9c8; padding: .7rem .9rem; border-radius: 10px; }
  .equipo-card:hover { border-color: oklch(0.55 0.12 222); background: #f2f7fa; }
