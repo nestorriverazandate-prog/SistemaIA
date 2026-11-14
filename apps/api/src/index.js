@@ -183,6 +183,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
     if (error) return res.status(400).json({ error: error.message });
     const perfil = await ensurePerfil(data.user.id, email, nombre || null);
+    notifyAdmins('registro', `Nuevo registro: ${nombre || email} (${email}) creó una cuenta en la plataforma`, null, { email, nombre: nombre || null }).catch((e) => console.error('notify registro:', e));
     const { codigo, enviado } = await generarYEnviarCodigo(data.user.id, email);
     // Sin SMTP el código no llega a ningún lado: devolver sesión directamente
     if (!enviado) {
@@ -285,6 +286,7 @@ app.post('/api/auth/google', async (req, res) => {
       });
       if (error) throw error;
       userId = data.user.id;
+      notifyAdmins('registro', `Nuevo registro con Google: ${g.name || g.email} (${g.email})`, null, { email: g.email, nombre: g.name || null }).catch((e) => console.error('notify google:', e));
     }
     const perfil = await ensurePerfil(userId, g.email, g.name || null);
     res.json({ token: signToken({ id: userId, email: g.email }), perfil });
