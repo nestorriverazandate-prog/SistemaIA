@@ -245,7 +245,12 @@
  </select>
  </td>
  <td>{fmtFecha(t.fecha_contratacion)}</td>
- <td class="acciones"><button class="mini" onclick={() => abrirExpediente(t)}>Expediente</button></td>
+ <td class="acciones">
+ <button class="mini" onclick={() => abrirExpediente(t)}>Expediente</button>
+ {#if t.email !== ADMIN_EMAIL}
+ <button class="mini danger" onclick={() => eliminarTrabajador(t)}>Eliminar</button>
+ {/if}
+ </td>
  </tr>
  {:else}<tr><td colspan="8" class="muted">Sin trabajadores{dirBusqueda || dirFiltroEstado || dirFiltroArea ? ' con esos filtros' : ''}</td></tr>{/each}
  </tbody>
