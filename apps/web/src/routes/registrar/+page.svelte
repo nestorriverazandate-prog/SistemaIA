@@ -126,13 +126,13 @@
  </main>
 {:else}
 <header>
- <div class="brand">
+ <a class="brand" href="/">
  <img src="/logo.png" alt="Agencia Gerontológica Integral" />
  <div class="brand-text">
  <span class="agency">Agencia Gerontológica Integral</span>
  <h1>Registrar visita domiciliaria</h1>
  </div>
- </div>
+ </a>
  <div>
  <span class="badge">{perfil.email}</span>
  <a class="ghost link" href="/">Inicio</a>
@@ -212,7 +212,7 @@
 
 <style>
  header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 1rem 1.25rem; background: oklch(0.99 0.01 90); border-bottom: 1px solid oklch(0.9 0.02 85); }
- .brand { display: flex; align-items: center; gap: .8rem; }
+ .brand { display: flex; align-items: center; gap: .8rem; text-decoration: none; color: inherit; }
  .brand img { height: 52px; width: auto; }
  .brand-text { display: flex; flex-direction: column; }
  .agency { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: oklch(0.55 0.1 80); font-weight: 700; }

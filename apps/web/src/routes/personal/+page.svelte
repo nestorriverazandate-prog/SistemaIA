@@ -158,13 +158,13 @@
  </main>
 {:else}
 <header>
- <div class="brand">
+ <a class="brand" href="/">
  <img src="/logo.png" alt="Agencia Gerontológica Integral" />
  <div class="brand-text">
  <span class="agency">Agencia Gerontológica Integral</span>
  <h1>Directorio y expedientes del personal</h1>
  </div>
- </div>
+ </a>
  <div>
  <span class="badge">{perfil.email} · Directivo</span>
  <a class="ghost link" href="/">Inicio</a>
@@ -344,7 +344,7 @@
 <style>
 :global(body) { margin: 0; font-family: system-ui, sans-serif; background: oklch(0.985 0.007 85); color: oklch(0.27 0.035 225); }
  header { display: flex; justify-content: space-between; align-items: center; padding: .8rem 2rem; background: oklch(0.3 0.05 222); color: #f2eee2; border-bottom: 3px solid oklch(0.7 0.1 78); flex-wrap: wrap; gap:.5rem; }
- .brand { display: flex; align-items: center; gap: .8rem; }
+ .brand { display: flex; align-items: center; gap: .8rem; text-decoration: none; color: inherit; }
  .brand-text { display: flex; flex-direction: column; }
  .agency { font-size: .72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: oklch(0.7 0.1 78); }
  header img { height: 44px; width: 44px; object-fit: cover; border-radius: 10px; background: #f2eee2; padding: 2px; }
