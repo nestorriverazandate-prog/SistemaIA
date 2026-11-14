@@ -170,6 +170,8 @@
  <a class="ghost link" href="/">Inicio</a>
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
+ <a class="ghost link" href="/pacientes">Pacientes</a>
+ <a class="ghost link" href="/paquetes">Paquetes</a>
  <button class="ghost" onclick={logout}>Salir</button>
  </div>
 </header>

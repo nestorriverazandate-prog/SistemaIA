@@ -94,6 +94,7 @@
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
  <a class="ghost link" href="/personal">Personal</a>
+ <a class="ghost link" href="/pacientes">Pacientes</a>
  <button class="ghost" onclick={logout}>Salir</button>
  </div>
 </header>
