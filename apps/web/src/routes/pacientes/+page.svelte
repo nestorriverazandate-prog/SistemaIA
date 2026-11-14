@@ -8,25 +8,6 @@
  let pacientes = $state([]);
  let formError = $state('');
  let formOk = $state('');
- let saving = $state(false);
- let editandoId = $state(null);
-
- let form = $state({
-  nombre: '', apellido: '', edad: '', telefono: '', email: '',
-  contacto_emergencia: '', telefono_emergencia: '',
-  direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '',
-  lat: null, lng: null
- });
- const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', contacto_emergencia: '', telefono_emergencia: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null };
-
- function usarMiUbicacion() {
-  if (!navigator.geolocation) { formError = 'GPS no soportado'; return; }
-  navigator.geolocation.getCurrentPosition(
-   (pos) => { form.lat = pos.coords.latitude; form.lng = pos.coords.longitude; formError = ''; },
-   () => { formError = 'No se pudo obtener la ubicación'; },
-   { enableHighAccuracy: true, timeout: 10000 }
-  );
- }
 
  let qrModal = $state(null);
  let qrImg = $state('');
@@ -37,24 +18,6 @@
   const p = await api.pacientes();
   pacientes = p.pacientes;
  }
-
- function editar(p) {
-  form = {
-   nombre: p.nombre || '', apellido: p.apellido || '', edad: p.cedula || '',
-   telefono: p.telefono || '', email: p.email || '',
-   contacto_emergencia: p.contacto_emergencia || '', telefono_emergencia: p.telefono_emergencia || '',
-   direccion: p.direccion || '',
-   tipo_servicio: p.tipo_servicio || '', descripcion: p.descripcion || '',
-   fecha_solicitud: p.fecha_solicitud ? String(p.fecha_solicitud).slice(0, 10) : '',
-   fecha_inicio: p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : '',
-   fecha_termino: p.fecha_termino ? String(p.fecha_termino).slice(0, 10) : '',
-   lat: p.lat ?? null, lng: p.lng ?? null
-  };
-  editandoId = p.id;
-  formError = ''; formOk = '';
-  document.getElementById('form-paciente')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
- }
- function cancelarEdicion() { editandoId = null; form = { ...formVacio }; formError = ''; formOk = ''; }
 
  async function abrirQR(p) {
   formError = ''; formOk = '';
@@ -144,18 +107,6 @@
   try { await api.eliminarPaciente(p.id); formOk = 'Paciente eliminado.'; await cargar(); }
   catch (e) { formError = e.message; }
  }
- async function crear(e) {
-  e.preventDefault();
-  formError = ''; formOk = '';
-  saving = true;
-  try {
-   if (editandoId) { await api.actualizarPaciente(editandoId, form); formOk = 'Paciente actualizado.'; }
-   else { await api.crearPaciente(form); formOk = 'Paciente registrado (Supabase + Drive).'; }
-   cancelarEdicion();
-   await cargar();
-  } catch (err) { formError = err.message; }
-  finally { saving = false; }
- }
  async function cambiarEstado(id, estado) {
   try { await api.estadoPaciente(id, estado); await cargar(); }
   catch (e) { formError = e.message; }
@@ -204,47 +155,12 @@
 </header>
 
 <main class="grid">
- <section class="card" id="form-paciente">
- <h2>{editandoId ? 'Editar paciente' : 'Nuevo paciente / solicitud de servicio'}</h2>
- <form onsubmit={crear}>
- <div class="row">
- <label>Nombre <input bind:value={form.nombre} required /></label>
- <label>Apellidos <input bind:value={form.apellido} required /></label>
- </div>
- <div class="row">
- <label>Edad del adulto mayor <input bind:value={form.edad} type="number" min="60" max="120" /></label>
- <label>Teléfono <input bind:value={form.telefono} /></label>
- <label>Email <input bind:value={form.email} type="email" /></label>
- </div>
- <div class="row">
- <label>Nombre del contacto de emergencia <input bind:value={form.contacto_emergencia} /></label>
- <label>Teléfono de emergencia <input bind:value={form.telefono_emergencia} type="tel" /></label>
- </div>
- <label>Dirección <input bind:value={form.direccion} /></label>
- <div class="row">
- <label>Tipo de servicio <input bind:value={form.tipo_servicio} placeholder="Consulta, examen…" /></label>
- <label>Fecha de solicitud <input bind:value={form.fecha_solicitud} type="date" /></label>
- </div>
- <div class="row">
- <label>Fecha de inicio del tratamiento <input bind:value={form.fecha_inicio} type="date" /></label>
- <label>Fecha de término del tratamiento <input bind:value={form.fecha_termino} type="date" /></label>
- </div>
- <label>Descripción <textarea bind:value={form.descripcion} rows="3"></textarea></label>
- <div class="geo-row">
- <button type="button" class="ghost" onclick={usarMiUbicacion}>Usar mi ubicación GPS</button>
- {#if form.lat != null}<span class="ok small">Coordenadas: {form.lat.toFixed(5)}, {form.lng.toFixed(5)}</span>{/if}
- </div>
  {#if formError}<p class="error">{formError}</p>{/if}
  {#if formOk}<p class="ok">{formOk}</p>{/if}
- <div class="btns">
- <button disabled={saving}>{saving? 'Guardando…': editandoId? 'Guardar cambios': 'Registrar'}</button>
- {#if editandoId}<button type="button" class="ghost" onclick={cancelarEdicion}>Cancelar</button>{/if}
- </div>
- </form>
- </section>
 
- <section class="card">
+ <section class="card wide">
  <h2>Pacientes ({pacientes.length})
+ <a class="mini ghost" href="/">+ Nuevo paciente</a>
  <button class="mini ghost" onclick={imprimirTodosQR} disabled={generandoQRs}>{generandoQRs ? 'Generando…' : 'Imprimir todos los QR'}</button>
  </h2>
  <table>
@@ -267,7 +183,7 @@
  </select>
  </td>
  <td class="acciones">
- <button class="mini" onclick={() => editar(p)}>Editar</button>
+ <button class="mini" onclick={() => { window.location.href = `/?editar=${p.id}`; }}>Editar</button>
  <button class="mini" onclick={() => abrirQR(p)}>QR</button>
  <button class="mini danger" onclick={() => eliminar(p)}>Eliminar</button>
  </td>
