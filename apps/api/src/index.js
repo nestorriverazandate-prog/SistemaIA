@@ -1490,13 +1490,19 @@ app.get('/api/paquetes', requireUser, async (req, res) => {
 app.post('/api/paquetes', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const { nombre, descripcion, precio, duracion_min, activo = true } = req.body || {};
+    const { nombre, descripcion, servicios, precio, duracion_min, activo = true } = req.body || {};
     if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
-    const { data, error } = await supabase.from('paquetes').insert({
+    const fila = {
       nombre: String(nombre).slice(0, 200), descripcion: String(descripcion || '').slice(0, 2000),
+      servicios: String(servicios || '').slice(0, 4000),
       precio: precio != null ? Number(precio) : null, duracion_min: duracion_min != null ? Number(duracion_min) : null,
       activo: !!activo
-    }).select().single();
+    };
+    let { data, error } = await supabase.from('paquetes').insert(fila).select().single();
+    if (error && /servicios|PGRST204|column/i.test(error.message || '')) {
+      const { servicios: _s, ...sinServicios } = fila;
+      ({ data, error } = await supabase.from('paquetes').insert(sinServicios).select().single());
+    }
     if (error) throw error;
     res.status(201).json({ paquete: data });
   } catch (e) {
@@ -1508,12 +1514,17 @@ app.patch('/api/paquetes/:id', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
     const update = {};
-    for (const f of ['nombre', 'descripcion']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 2000);
+    for (const f of ['nombre', 'descripcion', 'servicios']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 4000);
     if (req.body.precio != null) update.precio = Number(req.body.precio);
     if (req.body.duracion_min != null) update.duracion_min = Number(req.body.duracion_min);
     if (req.body.activo != null) update.activo = !!req.body.activo;
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const { data, error } = await supabase.from('paquetes').update(update).eq('id', req.params.id).select().single();
+    let { data, error } = await supabase.from('paquetes').update(update).eq('id', req.params.id).select().single();
+    if (error && update.servicios != null && /servicios|PGRST204|column/i.test(error.message || '')) {
+      delete update.servicios;
+      if (!Object.keys(update).length) return res.json({ paquete: null });
+      ({ data, error } = await supabase.from('paquetes').update(update).eq('id', req.params.id).select().single());
+    }
     if (error) throw error;
     res.json({ paquete: data });
   } catch (e) {

@@ -8,10 +8,34 @@
  let formOk = $state('');
 
  let paquetes = $state([]);
- let formPaquete = $state({ nombre: '', descripcion: '', precio: '', duracion_min: 60 });
+ let equipo = $state([]);
+ let formPaquete = $state({ nombre: '', descripcion: '', servicios: '', precio: '', duracion_min: 60 });
+
+ const AREAS = ['Gerontología', 'Enfermería', 'Nutrición', 'Fisioterapia', 'Médico', 'Trabajo social', 'Odontología', 'Psicología', 'Marketing', 'Abogado', 'Agencia de viajes'];
+ const estadoDe = (t) => t.estado_laboral || 'activo';
+
+ function agregarArea(area) {
+  const actual = formPaquete.servicios.trim();
+  const lineas = actual ? actual.split('\n') : [];
+  if (!lineas.some((l) => l.trim().toLowerCase() === area.toLowerCase())) {
+   formPaquete.servicios = [...lineas, `• ${area}`].join('\n');
+  }
+ }
+ function agregarProfesional(t) {
+  const texto = `${t.nombre || ''}${t.profesion ? ' — ' + t.profesion : ''}${t.especialidad ? ' (' + t.especialidad + ')' : ''}`.trim();
+  if (!texto) return;
+  const actual = formPaquete.servicios.trim();
+  const lineas = actual ? actual.split('\n') : [];
+  if (!lineas.some((l) => l.includes(t.nombre))) {
+   formPaquete.servicios = [...lineas, `• ${texto}`].join('\n');
+  }
+ }
 
  async function cargarPaquetes() {
   try { const r = await api.paquetes(); paquetes = r.paquetes || []; } catch { /* tabla puede no existir aún */ }
+ }
+ async function cargarEquipo() {
+  try { const r = await api.directorio(); equipo = r.trabajadores || []; } catch { /* silencioso */ }
  }
  async function crearPaquete(e) {
   e.preventDefault();
@@ -19,7 +43,7 @@
   try {
    await api.crearPaquete(formPaquete);
    formOk = 'Paquete creado';
-   formPaquete = { nombre: '', descripcion: '', precio: '', duracion_min: 60 };
+   formPaquete = { nombre: '', descripcion: '', servicios: '', precio: '', duracion_min: 60 };
    await cargarPaquetes();
   } catch (err) { formError = err.message; }
  }
@@ -35,7 +59,7 @@
    perfil = me.perfil;
   } catch { setToken(null); }
   loading = false;
-  if (perfil?.rol === 'admin') cargarPaquetes();
+  if (perfil?.rol === 'admin') { cargarPaquetes(); cargarEquipo(); }
  });
 
  function logout() { setToken(null); window.location.href = '/'; }
@@ -76,20 +100,41 @@
  <section class="card wide">
  <h2>Paquetes y servicios ({paquetes.length})</h2>
  <table>
- <thead><tr><th>Nombre</th><th>Descripción</th><th>Precio</th><th>Duración</th><th>Estado</th><th></th></tr></thead>
+ <thead><tr><th>Nombre</th><th>Descripción</th><th>Servicios / equipo incluido</th><th>Precio</th><th>Duración</th><th>Estado</th><th></th></tr></thead>
  <tbody>
  {#each paquetes as p (p.id)}
  <tr>
  <td>{p.nombre}</td>
  <td>{p.descripcion || '—'}</td>
+ <td class="servicios-cell">{p.servicios ? p.servicios.split('\n').filter(Boolean).join(' · ') : '—'}</td>
  <td>{p.precio != null ? '$' + Number(p.precio).toFixed(2) : '—'}</td>
  <td>{p.duracion_min != null ? p.duracion_min + ' min' : '—'}</td>
  <td>{p.activo ? 'activo' : 'inactivo'}</td>
  <td><button class="mini ghost" onclick={() => togglePaquete(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button></td>
  </tr>
- {:else}<tr><td colspan="6" class="muted">Sin paquetes — crea el primero abajo</td></tr>{/each}
+ {:else}<tr><td colspan="7" class="muted">Sin paquetes — crea el primero abajo</td></tr>{/each}
  </tbody>
  </table>
+
+ <h3>Áreas profesionales disponibles</h3>
+ <div class="chips">
+ {#each AREAS as a}
+ <button type="button" class="chip" onclick={() => agregarArea(a)}>+ {a}</button>
+ {/each}
+ </div>
+
+ <h3>Equipo registrado (clic para agregarlo al paquete)</h3>
+ {#if equipo.length}
+ <div class="equipo-grid">
+ {#each equipo.filter((t) => estadoDe(t) === 'activo') as t (t.id)}
+ <button type="button" class="equipo-card" onclick={() => agregarProfesional(t)} title="Agregar al paquete">
+ <strong>{t.nombre || t.email}</strong>
+ <span>{[t.profesion, t.especialidad].filter(Boolean).join(' · ') || 'Sin especialidad'}</span>
+ <em>{t.puesto || 'Trabajador'}</em>
+ </button>
+ {/each}
+ </div>
+ {:else}<p class="muted">No hay trabajadores registrados — agrégalos en <a href="/personal">Personal</a>.</p>{/if}
 
  <h3>Nuevo paquete</h3>
  <form class="exp-form" onsubmit={crearPaquete}>
@@ -99,6 +144,9 @@
  <label>Duración (min) <input bind:value={formPaquete.duracion_min} type="number" min="15" /></label>
  </div>
  <label>Descripción <textarea bind:value={formPaquete.descripcion} rows="2"></textarea></label>
+ <label>Servicios / profesionales incluidos
+ <textarea bind:value={formPaquete.servicios} rows="4" placeholder="Usa los botones de arriba o escribe aquí qué incluye el paquete (ej: valoraciones por enfermería y geriatría)"></textarea>
+ </label>
  <button>Crear paquete</button>
  </form>
  </section>
@@ -132,6 +180,16 @@
  input, textarea { padding: .55rem .7rem; border: 1px solid #d8d2c4; border-radius: 8px; font: inherit; background: #fbf9f4; }
  button { background: oklch(0.55 0.12 222); color: #fff; border: 0; padding: .6rem 1.2rem; border-radius: 8px; font: inherit; cursor: pointer; }
  button.mini { padding: .3rem .7rem; font-size: .8rem; background: oklch(0.6 0.08 222); }
+ .servicios-cell { font-size: .8rem; color: #4a5560; max-width: 220px; }
+ .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 1rem; }
+ .chip { background: #eef4f8; color: oklch(0.35 0.08 222); border: 1px solid #cfdde6; }
+ .chip:hover { background: oklch(0.9 0.03 222); }
+ .equipo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .6rem; margin: .4rem 0 1rem; }
+ .equipo-card { display: grid; gap: .2rem; text-align: left; background: #fbf9f4; color: #1c2733; border: 1px solid #e0d9c8; padding: .7rem .9rem; border-radius: 10px; }
+ .equipo-card:hover { border-color: oklch(0.55 0.12 222); background: #f2f7fa; }
+ .equipo-card strong { font-size: .92rem; }
+ .equipo-card span { font-size: .82rem; color: #4a5560; }
+ .equipo-card em { font-style: normal; font-size: .75rem; color: #7a8691; }
  h2 { margin: 0 0 .4rem; }
  h3 { margin: 1.2rem 0 .2rem; }
 </style>

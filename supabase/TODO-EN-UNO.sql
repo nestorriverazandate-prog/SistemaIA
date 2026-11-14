@@ -166,6 +166,7 @@ create table if not exists public.paquetes (
   activo boolean not null default true,
   created_at timestamptz not null default now()
 );
+alter table public.paquetes add column if not exists servicios text;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (
