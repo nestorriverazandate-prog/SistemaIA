@@ -52,8 +52,8 @@ async function request(path, options = {}) {
 export const api = {
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (email, password, nombre) =>
-    request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, nombre }) }),
+  register: (email, password, nombre, password2) =>
+    request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, nombre, password2 }) }),
   google: (credential) =>
     request('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
   verificar: (email, codigo) =>

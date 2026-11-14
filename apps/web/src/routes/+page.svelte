@@ -118,17 +118,19 @@
  authInfo = '';
  authLoading = true;
  try {
+ if (authMode === 'registro') {
+ if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) { authError = 'Ingresa un correo electrónico válido'; return; }
+ if (password !== password2) { authError = 'Las contraseñas no coinciden'; return; }
+ }
  const data = authMode === 'registro'
-? await api.register(email, password, email.split('@')[0])
+? await api.register(email, password, email.split('@')[0], password2)
 : await api.login(email, password);
  if (data.requiere_verificacion) {
  verifEmail = data.email || email;
  codigo = '';
  authMode = 'verificar';
  authError = '';
- authInfo = data.dev_codigo
- ? `Modo desarrollo — tu código es: ${data.dev_codigo}`
- : `Te enviamos un código de 6 dígitos a ${verifEmail}`;
+ authInfo = `¡Tu cuenta ha sido creada! Hemos enviado un correo electrónico de verificación a ${verifEmail}. Confirma tu dirección para activar tu acceso.`;
  return;
  }
  await entrar(data);
@@ -153,8 +155,12 @@
  authInfo = '';
  authLoading = true;
  try {
- const data = await api.verificar(verifEmail || email, codigo);
- await entrar(data);
+ await api.verificar(verifEmail || email, codigo);
+ authMode = 'login';
+ password = '';
+ password2 = '';
+ authError = '';
+ authInfo = '¡Correo verificado correctamente! Ya puedes ingresar a tu cuenta.';
  } catch (err) {
  authError = err.message;
  } finally {
@@ -418,6 +424,9 @@
  <form onsubmit={loginPassword}>
  <label>Email <input type="email" bind:value={email} required autocomplete="email" /></label>
  <label>Contraseña <input type="password" bind:value={password} required minlength="6" autocomplete={authMode === 'login'? 'current-password': 'new-password'} /></label>
+ {#if authMode === 'registro'}
+ <label>Confirmar contraseña <input type="password" bind:value={password2} required minlength="6" autocomplete="new-password" /></label>
+ {/if}
  <button disabled={authLoading}>{authLoading? 'Procesando…': authMode === 'login'? 'Entrar': 'Registrarse'}</button>
  </form>
 

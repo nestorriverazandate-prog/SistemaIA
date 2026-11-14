@@ -17,6 +17,7 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { resolveMx } from 'node:dns/promises';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -106,8 +107,34 @@ async function findAuthUserByEmail(email) {
 // ---------- Verificación de correo con código de 6 dígitos ----------
 // El hash del código y su expiración se guardan en user_metadata de auth.users
 // (no requiere columnas nuevas en la base de datos).
-const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+const CODE_TTL_MS = 15 * 60 * 1000; // 15 minutos
 const CODE_MAX_INTENTOS = 5;
+
+// ---------- Validación real de correo ----------
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const DOMINIOS_BLOQUEADOS = new Set([
+  'mailinator.com', 'tempmail.com', 'temp-mail.org', '10minutemail.com',
+  'guerrillamail.com', 'guerrillamail.net', 'yopmail.com', 'throwawaymail.com',
+  'sharklasers.com', 'getnada.com', 'maildrop.cc', 'dispostable.com',
+  'fakeinbox.com', 'mintemail.com', 'tempr.email', 'trashmail.com',
+  'mailnesia.com', 'mohmal.com', 'emailondeck.com', 'throwam.com'
+]);
+
+async function validarEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) return { ok: false, error: 'Formato de correo inválido' };
+  const dominio = e.split('@')[1];
+  if (DOMINIOS_BLOQUEADOS.has(dominio)) {
+    return { ok: false, error: 'No se permiten correos temporales o desechables' };
+  }
+  try {
+    const mx = await resolveMx(dominio);
+    if (!mx || !mx.length) return { ok: false, error: 'El dominio del correo no puede recibir mensajes' };
+  } catch {
+    return { ok: false, error: 'El dominio del correo no existe o no recibe correo' };
+  }
+  return { ok: true, email: e };
+}
 
 const transporter = process.env.SMTP_USER
   ? nodemailer.createTransport({
@@ -146,7 +173,7 @@ async function enviarCodigo(email, codigo) {
         <h2 style="color:#083340;margin-top:0">Verifica tu correo</h2>
         <p>Tu código de verificación es:</p>
         <p style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#135666">${codigo}</p>
-        <p style="color:#5f767f;font-size:13px">Vence en 10 minutos. Si no creaste esta cuenta, ignora este mensaje.</p>
+        <p style="color:#5f767f;font-size:13px">Vence en 15 minutos. Si no creaste esta cuenta, ignora este mensaje.</p>
       </div>`
   });
   return true;
@@ -171,25 +198,35 @@ async function generarYEnviarCodigo(userId, email) {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, nombre } = req.body || {};
+    const { email, password, password2, nombre } = req.body || {};
+    if (password2 != null && password2 !== password) {
+      return res.status(400).json({ error: 'Las contraseñas no coinciden' });
+    }
     if (!email || !password || password.length < 6) {
       return res.status(400).json({ error: 'Email válido y contraseña de mínimo 6 caracteres' });
     }
+    const v = await validarEmail(email);
+    if (!v.ok) return res.status(400).json({ error: v.error });
     const { data, error } = await supabase.auth.admin.createUser({
-      email,
+      email: v.email,
       password,
       email_confirm: true,
       user_metadata: { nombre: nombre || '' }
     });
-    if (error) return res.status(400).json({ error: error.message });
-    const perfil = await ensurePerfil(data.user.id, email, nombre || null);
-    notifyAdmins('registro', `Nuevo registro: ${nombre || email} (${email}) creó una cuenta en la plataforma`, null, { email, nombre: nombre || null }).catch((e) => console.error('notify registro:', e));
-    const { codigo, enviado } = await generarYEnviarCodigo(data.user.id, email);
+    if (error) {
+      const msg = /already|registered|exists/i.test(error.message || '')
+        ? 'Ya existe una cuenta con ese correo electrónico'
+        : error.message;
+      return res.status(400).json({ error: msg });
+    }
+    const perfil = await ensurePerfil(data.user.id, v.email, nombre || null);
+    notifyAdmins('registro', `Nuevo registro: ${nombre || v.email} (${v.email}) creó una cuenta en la plataforma`, null, { email: v.email, nombre: nombre || null }).catch((e) => console.error('notify registro:', e));
+    const { codigo, enviado } = await generarYEnviarCodigo(data.user.id, v.email);
     // Sin SMTP el código no llega a ningún lado: devolver sesión directamente
     if (!enviado) {
-      return res.json({ token: signToken({ id: data.user.id, email }), perfil });
+      return res.json({ token: signToken({ id: data.user.id, email: v.email }), perfil });
     }
-    res.json({ requiere_verificacion: true, email });
+    res.json({ requiere_verificacion: true, email: v.email });
   } catch (e) {
     console.error('register:', e);
     res.status(500).json({ error: 'Error al registrar' });
@@ -246,11 +283,27 @@ app.post('/api/auth/reenviar', async (req, res) => {
   }
 });
 
+// Rate limit de inicio de sesión: 5 fallos → bloqueo 15 min por correo
+const LOGIN_MAX_FALLOS = 5;
+const LOGIN_BLOQUEO_MS = 15 * 60 * 1000;
+const loginFallos = new Map(); // email -> { fallos, hasta }
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
+    const clave = String(email || '').trim().toLowerCase();
+    const reg = loginFallos.get(clave);
+    if (reg?.hasta && Date.now() < reg.hasta) {
+      const mins = Math.ceil((reg.hasta - Date.now()) / 60000);
+      return res.status(429).json({ error: `Demasiados intentos fallidos. Intenta de nuevo en ${mins} min` });
+    }
     const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
-    if (error || !data.user) return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (error || !data.user) {
+      const f = (reg?.fallos || 0) + 1;
+      loginFallos.set(clave, { fallos: f, hasta: f >= LOGIN_MAX_FALLOS ? Date.now() + LOGIN_BLOQUEO_MS : 0 });
+      return res.status(401).json({ error: 'Correo no registrado o contraseña incorrecta' });
+    }
+    loginFallos.delete(clave);
     if (data.user.user_metadata?.verif_ok === false) {
       return res.status(403).json({ error: 'Debes verificar tu correo antes de entrar', requiere_verificacion: true, email });
     }
