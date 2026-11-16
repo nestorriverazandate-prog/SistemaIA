@@ -798,7 +798,7 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
  .notif-wrap { position: relative; }
  .bell { position: relative; }
  .notif-count { background: #b91c1c; color: #fff; border-radius: 999px; font-size: .7rem; padding: .05rem .4rem; margin-left: .3rem; }
- .notif-panel { position: absolute; right: 0; top: 110%; width: 340px; max-height: 380px; overflow: auto; background: #fff; color: oklch(0.27 0.035 225); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); padding: .6rem; z-index: 50; }
+ .notif-panel { position: fixed; right: 1rem; top: 64px; width: min(360px, calc(100vw - 2rem)); max-height: min(70vh, 480px); overflow: auto; background: #fff; color: oklch(0.27 0.035 225); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); padding: .6rem; z-index: 200; }
  .notif-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .4rem; }
  .mini-link { background: none; border: 0; color: oklch(0.42 0.068 218); font-size: .78rem; cursor: pointer; text-decoration: underline; }
  .notif-item { padding: .5rem .4rem; border-bottom: 1px solid oklch(0.93 0.025 140); cursor: pointer; font-size: .82rem; }
