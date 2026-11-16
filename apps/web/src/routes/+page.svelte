@@ -58,6 +58,7 @@
  } else {
  const v = await api.visitas().catch(() => ({ visitas: [] }));
  misVisitas = v.visitas || [];
+ empForm.nombre = perfil?.nombre || '';
  empForm.telefono = perfil?.telefono || '';
  empForm.domicilio = perfil?.domicilio || '';
  }
@@ -240,7 +241,7 @@
 
  let misVisitas = $state([]);
  const visitasHoy = $derived(misVisitas.filter((v) => String(v.fecha) === new Date().toISOString().slice(0, 10)));
- let empForm = $state({ telefono: '', domicilio: '' });
+ let empForm = $state({ nombre: '', telefono: '', domicilio: '' });
  let empMsg = $state('');
  let empError = $state('');
  let empSaving = $state(false);
@@ -328,6 +329,20 @@
  } finally {
  saving = false;
  }
+ }
+
+ async function cambiarPerfil(id, body) {
+ try {
+  const { perfil: actualizado } = await api.actualizarPerfil(id, body);
+  const idx = perfiles.findIndex((x) => x.id === id);
+  if (idx >= 0) perfiles[idx] = actualizado;
+  formError = ''; formOk = 'Usuario actualizado';
+ } catch (e) { formError = e.message; }
+ }
+ async function editarNombreUsuario(u) {
+ const nombre = prompt(`Nombre de ${u.email}:`, u.nombre || '');
+ if (nombre === null) return;
+ await cambiarPerfil(u.id, { nombre });
  }
 
  async function eliminarUsuario(u) {
@@ -583,7 +598,7 @@
  {#each perfiles as u (u.id)}
  <tr>
  <td>{u.email}</td>
- <td>{u.nombre || '—'}</td>
+ <td>{u.nombre || '—'} <button class="mini ghost" title="Editar nombre" onclick={() => editarNombreUsuario(u)}>✏️</button></td>
  <td>
  <select class="rol-select" value={u.rol} disabled={u.email === ADMIN_EMAIL} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
  {#each opcionesRol(u) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
@@ -642,8 +657,9 @@
  {#if perfil.estado_laboral} · {perfil.estado_laboral}{/if}
  </p>
 
- <h3>Mis datos de contacto</h3>
+ <h3>Mis datos personales</h3>
  <form onsubmit={(e) => { e.preventDefault(); guardarMiPerfil(); }}>
+ <label>Nombre completo <input bind:value={empForm.nombre} required /></label>
  <label>Teléfono <input bind:value={empForm.telefono} type="tel" /></label>
  <label>Domicilio <input bind:value={empForm.domicilio} /></label>
  {#if empError}<p class="error">{empError}</p>{/if}

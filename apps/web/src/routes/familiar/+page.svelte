@@ -10,6 +10,21 @@
  let sel = $state(null);       // grupo seleccionado (detalle)
  let mensaje = $state('');
  let enviando = $state(false);
+ let famForm = $state({ nombre: '', telefono: '' });
+ let famMsg = $state('');
+ let famErr = $state('');
+ let famSaving = $state(false);
+
+ async function guardarMisDatos() {
+  famErr = ''; famMsg = '';
+  famSaving = true;
+  try {
+   const { perfil: p } = await api.actualizarPerfil(perfil.id, famForm);
+   perfil = { ...perfil, ...p };
+   famMsg = 'Datos actualizados';
+  } catch (e) { famErr = e.message; }
+  finally { famSaving = false; }
+ }
 
  function fmtFecha(f) { return f ? new Date(f.length === 10 ? f + 'T12:00:00' : f).toLocaleDateString('es-EC', { dateStyle: 'medium' }) : '—'; }
  function fmtFechaHora(f) { return f ? new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' }) : '—'; }
@@ -116,6 +131,8 @@
    const { user: me } = await api.me();
    perfil = me.perfil;
    if (perfil?.rol !== 'familiar' && perfil?.rol !== 'admin') { loading = false; return; }
+   famForm.nombre = perfil?.nombre || '';
+   famForm.telefono = perfil?.telefono || '';
    await cargar();
   } catch { setToken(null); }
   finally { loading = false; }
@@ -172,6 +189,17 @@
     {/each}
    </div>
   {/if}
+ </section>
+
+ <section class="card">
+  <h2>Mis datos personales</h2>
+  <form class="msg-row" onsubmit={(e) => { e.preventDefault(); guardarMisDatos(); }}>
+   <input bind:value={famForm.nombre} placeholder="Nombre completo" required />
+   <input bind:value={famForm.telefono} placeholder="Teléfono" type="tel" />
+   <button disabled={famSaving}>{famSaving ? 'Guardando…' : 'Guardar'}</button>
+  </form>
+  {#if famErr}<p class="error">{famErr}</p>{/if}
+  {#if famMsg}<p class="ok">{famMsg}</p>{/if}
  </section>
 
  <section class="card">

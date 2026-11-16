@@ -500,7 +500,7 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
         update.contactos_emergencia = limpios;
       }
     } else {
-      for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
+      for (const f of ['telefono', 'domicilio', 'nombre']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, f === 'nombre' ? 200 : 300);
     }
     if (!Object.keys(update).length && req.body.foto === undefined) return res.status(400).json({ error: 'Nada que actualizar' });
 
