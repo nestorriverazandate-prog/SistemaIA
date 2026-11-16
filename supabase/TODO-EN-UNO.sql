@@ -190,6 +190,15 @@ create table if not exists public.paquetes (
   created_at timestamptz not null default now()
 );
 alter table public.paquetes add column if not exists servicios text;
+-- Expediente del paciente: paquete contratado, foto y datos clínicos
+alter table public.pacientes add column if not exists foto_path text;
+alter table public.pacientes add column if not exists paquete_id uuid references public.paquetes (id) on delete set null;
+alter table public.pacientes add column if not exists frecuencia_visitas text;
+alter table public.pacientes add column if not exists profesional_asignado text;
+alter table public.pacientes add column if not exists diagnostico text;
+alter table public.pacientes add column if not exists antecedentes text;
+alter table public.pacientes add column if not exists objetivos text;
+alter table public.pacientes add column if not exists fecha_contratacion date;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (

@@ -604,9 +604,9 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 });
 
 // ---------- Pacientes ----------
-const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token'];
+const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
-const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia'];
+const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos'];
 // Campos de fecha: '' del formulario se guarda como null
 const CAMPOS_FECHA = new Set(['fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'fecha_contratacion', 'fecha_nacimiento']);
 
@@ -617,7 +617,7 @@ function sinColumnaFaltante(p, errorMsg) {
   const m = /column [`"]?(?:public\.)?\w+\.([a-z_]+)[`"]? does not exist|Could not find the ['"`]([a-z_]+)['"`] column/i.exec(errorMsg || '');
   const col = m && (m[1] || m[2]);
   if (col && copia[col] !== undefined) { delete copia[col]; return copia; }
-  for (const f of [...PATIENT_OPTIONALES, 'qr_token', 'qr_activo', 'lat', 'lng', 'user_id', 'registrado_por']) delete copia[f];
+  for (const f of [...PATIENT_OPTIONALES, 'qr_token', 'qr_activo', 'lat', 'lng', 'user_id', 'registrado_por', 'foto_path']) delete copia[f];
   return copia;
 }
 
@@ -658,6 +658,28 @@ function sanitizePatient(body) {
   return p;
 }
 
+// ---------- Fotografía del paciente (Supabase Storage privado 'pacientes') ----------
+let bucketPacientesOk = null;
+async function asegurarBucketPacientes() {
+  if (bucketPacientesOk !== null) return bucketPacientesOk;
+  const { error } = await supabase.storage.createBucket('pacientes', { public: false });
+  bucketPacientesOk = !error || /already exists|duplicate/i.test(error.message || '');
+  return bucketPacientesOk;
+}
+
+// Sube (o reemplaza) la foto del paciente; devuelve el storage_path o null
+async function subirFotoPaciente(pacienteId, dataUrl) {
+  const parsed = dataUrlABuffer(dataUrl);
+  if (!parsed || parsed.buffer.length > 8 * 1024 * 1024) return null;
+  if (!(await asegurarBucketPacientes())) return null;
+  const ext = parsed.mime.includes('png') ? 'png' : 'jpg';
+  const path = `${pacienteId}/foto.${ext}`;
+  // Eliminar versión anterior con otra extensión si existe
+  await supabase.storage.from('pacientes').remove([`${pacienteId}/foto.jpg`, `${pacienteId}/foto.png`]).catch(() => {});
+  const up = await supabase.storage.from('pacientes').upload(path, parsed.buffer, { contentType: parsed.mime, upsert: true });
+  return up.error ? null : path;
+}
+
 app.post('/api/pacientes', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede registrar pacientes' });
   try {
@@ -673,6 +695,15 @@ app.post('/api/pacientes', requireUser, async (req, res) => {
       base
     );
     if (error) throw error;
+
+    // Fotografía (si se envió) → Storage privado + foto_path
+    if (req.body.foto) {
+      const path = await subirFotoPaciente(data.id, req.body.foto);
+      if (path) {
+        await supabase.from('pacientes').update({ foto_path: path }).eq('id', data.id).then(() => {});
+        data.foto_path = path;
+      }
+    }
 
     await appendToDriveDoc(data);
     res.status(201).json({ paciente: data });
@@ -720,10 +751,65 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
       const { data: actual } = await supabase.from('pacientes').select('*').eq('id', req.params.id).single();
       return res.json({ paciente: actual });
     }
+    // Fotografía nueva o eliminada (foto: dataURL | null | '')
+    if (req.body.foto !== undefined) {
+      if (req.body.foto) {
+        const path = await subirFotoPaciente(req.params.id, req.body.foto);
+        if (path) {
+          await supabase.from('pacientes').update({ foto_path: path }).eq('id', req.params.id).then(() => {});
+          resUpdate.data.foto_path = path;
+        }
+      } else if (req.body.foto === null || req.body.foto === '') {
+        const { data: actual } = await supabase.from('pacientes').select('foto_path').eq('id', req.params.id).maybeSingle();
+        if (actual?.foto_path) {
+          await supabase.storage.from('pacientes').remove([actual.foto_path]).catch(() => {});
+          await supabase.from('pacientes').update({ foto_path: null }).eq('id', req.params.id).then(() => {});
+          resUpdate.data.foto_path = null;
+        }
+      }
+    }
     res.json({ paciente: resUpdate.data });
   } catch (e) {
     console.error('PATCH paciente:', e);
     res.status(500).json({ error: 'Error al actualizar paciente' });
+  }
+});
+
+// URL firmada de la foto del paciente (privada; admin o empleado autorizado)
+app.get('/api/pacientes/:id/foto', requireUser, async (req, res) => {
+  try {
+    const { data: p } = await supabase.from('pacientes').select('foto_path').eq('id', req.params.id).maybeSingle();
+    if (!p?.foto_path) return res.status(404).json({ error: 'Sin fotografía' });
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.storage.from('pacientes').createSignedUrl(p.foto_path, 3600);
+    if (error) throw error;
+    res.json({ url: data.signedUrl });
+  } catch (e) {
+    console.error('GET foto paciente:', e);
+    res.status(500).json({ error: 'No se pudo generar el enlace' });
+  }
+});
+
+// Expediente completo: paciente + visitas + notas de evolución + evidencias
+app.get('/api/pacientes/:id/expediente', requireUser, async (req, res) => {
+  try {
+    const { data: p } = await supabase.from('pacientes').select('*').eq('id', req.params.id).maybeSingle();
+    if (!p) return res.status(404).json({ error: 'Paciente no encontrado' });
+    if (!isAdmin(req) && req.user?.perfil?.rol !== 'staff') return res.status(403).json({ error: 'Sin permiso' });
+    const [{ data: visitas }, { data: notas }, { data: evidencias }] = await Promise.all([
+      supabase.from('visitas').select('*, perfiles!visitas_trabajador_id_fkey(nombre, profesion, especialidad)').eq('paciente_id', req.params.id).order('fecha', { ascending: false }).limit(300),
+      supabase.from('notas_atencion').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(500),
+      supabase.from('evidencias').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(1000)
+    ]);
+    res.json({
+      paciente: p,
+      visitas: visitas || [],
+      notas: notas || [],
+      evidencias: (evidencias || []).map((e) => ({ id: e.id, nota_id: e.nota_id, visita_id: e.visita_id, descripcion: e.descripcion, nombre_archivo: e.nombre_archivo, created_at: e.created_at }))
+    });
+  } catch (e) {
+    console.error('GET expediente:', e);
+    res.status(500).json({ error: 'Error al obtener expediente' });
   }
 });
 

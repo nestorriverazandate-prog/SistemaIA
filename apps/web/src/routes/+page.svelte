@@ -250,10 +250,24 @@
  nombre: '', apellido: '', edad: '', telefono: '', email: '',
  contacto_emergencia: '', telefono_emergencia: '',
  direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '',
- lat: null, lng: null
+ lat: null, lng: null, foto: null
  });
- const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', contacto_emergencia: '', telefono_emergencia: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null };
+ const formVacio = { nombre: '', apellido: '', edad: '', telefono: '', email: '', contacto_emergencia: '', telefono_emergencia: '', direccion: '', tipo_servicio: '', descripcion: '', fecha_solicitud: '', fecha_inicio: '', fecha_termino: '', lat: null, lng: null, foto: null };
  let saving = $state(false);
+ let fotoPreview = $state('');
+ let fotoChanged = $state(false);
+
+ function onFotoPaciente(e) {
+ const file = e.target.files?.[0];
+ e.target.value = '';
+ if (!file) return;
+ if (!/^image\/(jpeg|png)$/.test(file.type)) { formError = 'La foto debe ser JPG o PNG'; return; }
+ const r = new FileReader();
+ r.onload = () => { form.foto = r.result; fotoPreview = r.result; fotoChanged = true; formError = ''; };
+ r.readAsDataURL(file);
+ }
+ function quitarFotoPaciente() { form.foto = null; fotoPreview = ''; fotoChanged = true; }
+ function resetFoto() { form.foto = null; fotoPreview = ''; fotoChanged = false; }
 
  function usarMiUbicacion() {
  if (!navigator.geolocation) { formError = 'GPS no soportado'; return; }
@@ -274,14 +288,17 @@
  fecha_solicitud: p.fecha_solicitud ? String(p.fecha_solicitud).slice(0, 10) : '',
  fecha_inicio: p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : '',
  fecha_termino: p.fecha_termino ? String(p.fecha_termino).slice(0, 10) : '',
- lat: p.lat ?? null, lng: p.lng ?? null
+ lat: p.lat ?? null, lng: p.lng ?? null, foto: null
  };
+ fotoPreview = '';
+ fotoChanged = false;
+ api.fotoPaciente(p.id).then((r) => { if (r?.url) fotoPreview = r.url; }).catch(() => {});
  editandoId = p.id;
  formError = ''; formOk = '';
  document.getElementById('form-paciente')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
  }
 
- function cancelarEdicion() { editandoId = null; form = { ...formVacio }; formError = ''; formOk = ''; }
+ function cancelarEdicion() { editandoId = null; form = { ...formVacio }; resetFoto(); formError = ''; formOk = ''; }
 
  async function crear(e) {
  e.preventDefault();
@@ -289,11 +306,14 @@
  formOk = '';
  saving = true;
  try {
+ const body = { ...form };
+ if (fotoChanged) body.foto = form.foto; // solo enviar foto si cambió (null = quitar)
+ else delete body.foto;
  if (editandoId) {
- await api.actualizarPaciente(editandoId, form);
+ await api.actualizarPaciente(editandoId, body);
  formOk = 'Paciente actualizado.';
  } else {
- await api.crearPaciente(form);
+ await api.crearPaciente(body);
  formOk = 'Paciente registrado (Supabase + Drive).';
  }
  cancelarEdicion();
@@ -525,6 +545,16 @@
  <label>Fecha de término del tratamiento <input bind:value={form.fecha_termino} type="date" /></label>
  </div>
  <label>Descripción <textarea bind:value={form.descripcion} rows="3"></textarea></label>
+ <div>
+ <label>Fotografía del paciente <small class="muted">(JPG o PNG, opcional)</small></label>
+ <div class="foto-row">
+ {#if fotoPreview}<img class="foto-prev" src={fotoPreview} alt="Vista previa" />{/if}
+ <label class="ghost foto-btn">{fotoPreview ? 'Cambiar foto' : 'Subir foto'}
+ <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoPaciente} />
+ </label>
+ {#if fotoPreview}<button type="button" class="ghost" onclick={quitarFotoPaciente}>Quitar</button>{/if}
+ </div>
+ </div>
  <div class="geo-row">
  <button type="button" class="ghost" onclick={usarMiUbicacion}>Usar mi ubicación GPS</button>
  {#if form.lat != null}<span class="ok small">Coordenadas: {form.lat.toFixed(5)}, {form.lng.toFixed(5)}</span>{/if}
@@ -741,6 +771,10 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
  .notif-tipo { font-size: .68rem; background: oklch(0.94 0.025 80); border-radius: 999px; padding: .1rem .45rem; margin-left: .3rem; text-transform: uppercase; }
  .geo-row { display: flex; gap: .6rem; align-items: center; }
  .geo-row .ghost { margin: 0; }
+ .foto-row { display: flex; gap: .6rem; align-items: center; margin-top: .3rem; }
+ .foto-prev { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; border: 1px solid oklch(0.86 0.02 85); }
+ .foto-btn { position: relative; overflow: hidden; padding: .45rem .9rem; border: 1px solid oklch(0.45 0.03 225); border-radius: 8px; cursor: pointer; font-size: .85rem; }
+ .hidden { position: absolute; opacity: 0; width: 1px; height: 1px; }
  button.mini { padding:.25rem.6rem; font-size:.75rem; margin-right:.35rem; }
 .acciones { white-space: nowrap; }
 .btns { display: flex; gap: .5rem; }

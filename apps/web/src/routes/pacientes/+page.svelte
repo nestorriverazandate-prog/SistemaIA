@@ -112,6 +112,222 @@
   catch (e) { formError = e.message; }
  }
 
+ // ---------- Expediente del paciente ----------
+ let exp = $state(null);          // { paciente, visitas, notas, evidencias }
+ let expLoading = $state(false);
+ let expFoto = $state('');
+ let paquetes = $state([]);
+ let expForm = $state({});
+ let expMsg = $state('');
+ let expErr = $state('');
+ let fProf = $state('');
+ let fDesde = $state('');
+ let fHasta = $state('');
+
+ async function abrirExpediente(p) {
+  expErr = ''; expMsg = ''; expFoto = ''; fProf = ''; fDesde = ''; fHasta = '';
+  expForm = {
+   paquete_id: p.paquete_id || '',
+   frecuencia_visitas: p.frecuencia_visitas || '',
+   profesional_asignado: p.profesional_asignado || '',
+   diagnostico: p.diagnostico || '',
+   antecedentes: p.antecedentes || '',
+   objetivos: p.objetivos || '',
+   fecha_contratacion: p.fecha_contratacion || ''
+  };
+  exp = { paciente: p, visitas: [], notas: [], evidencias: [] };
+  expLoading = true;
+  try {
+   if (!paquetes.length) paquetes = (await api.paquetes()).paquetes || [];
+   const [exped, foto] = await Promise.all([
+    api.expedientePaciente(p.id),
+    api.fotoPaciente(p.id).then((r) => r.url).catch(() => '')
+   ]);
+   exp = exped;
+   expFoto = foto || '';
+  } catch (e) { expErr = e.message; }
+  finally { expLoading = false; }
+ }
+ function cerrarExpediente() { exp = null; expFoto = ''; }
+
+ async function guardarExpediente() {
+  expErr = ''; expMsg = '';
+  try {
+   const body = { ...expForm };
+   if (!body.paquete_id) delete body.paquete_id;
+   const { paciente } = await api.actualizarPaciente(exp.paciente.id, body);
+   exp.paciente = { ...exp.paciente, ...paciente };
+   const idx = pacientes.findIndex((x) => x.id === paciente.id);
+   if (idx >= 0) pacientes[idx] = { ...pacientes[idx], ...paciente };
+   expMsg = 'Expediente actualizado.';
+  } catch (e) { expErr = e.message; }
+ }
+
+ async function onFotoExp(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/^image\/(jpeg|png)$/.test(file.type)) { expErr = 'Solo JPG o PNG'; return; }
+  const dataUrl = await new Promise((res, rej) => {
+   const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
+  });
+  expErr = ''; expMsg = '';
+  try {
+   const { paciente } = await api.actualizarPaciente(exp.paciente.id, { foto: dataUrl });
+   exp.paciente = { ...exp.paciente, ...paciente };
+   expFoto = dataUrl; // vista previa inmediata
+   const fresh = await api.fotoPaciente(exp.paciente.id).then((r) => r.url).catch(() => '');
+   if (fresh) expFoto = fresh;
+   expMsg = 'Fotografía actualizada.';
+  } catch (err) { expErr = err.message; }
+ }
+
+ async function quitarFotoExp() {
+  if (!confirm('¿Quitar la fotografía del paciente?')) return;
+  try {
+   const { paciente } = await api.actualizarPaciente(exp.paciente.id, { foto: null });
+   exp.paciente = { ...exp.paciente, ...paciente };
+   expFoto = '';
+  } catch (e) { expErr = e.message; }
+ }
+
+ // Datos derivados del expediente
+ const stats = $derived.by(() => {
+  if (!exp) return null;
+  const visitas = exp.visitas || [];
+  const notas = exp.notas || [];
+  const totalSesiones = visitas.length;
+  const completadas = visitas.filter((v) => v.estado === 'completada' || v.salida).length;
+  const pendientes = visitas.filter((v) => !v.salida).length;
+  const conNota = new Set(notas.map((n) => n.visita_id).filter(Boolean)).size;
+  const avance = totalSesiones ? Math.round((conNota / totalSesiones) * 100) : 0;
+  const profs = [...new Set(notas.map((n) => n.especialidad || n.profesion || 'General'))];
+  return { totalSesiones, completadas, pendientes, conNota, avance, profs, evidencias: (exp.evidencias || []).length };
+ });
+
+ const historialFiltrado = $derived.by(() => {
+  if (!exp) return [];
+  const notasPorVisita = new Map();
+  for (const n of exp.notas || []) if (n.visita_id) notasPorVisita.set(n.visita_id, [...(notasPorVisita.get(n.visita_id) || []), n]);
+  let items = (exp.visitas || []).map((v) => ({
+   ...v,
+   notas: notasPorVisita.get(v.id) || [],
+   prof: v.perfiles?.nombre || v.perfiles?.email || 'Personal'
+  }));
+  if (fProf) items = items.filter((v) => (v.perfiles?.especialidad || v.perfiles?.profesion || 'General') === fProf || (v.notas[0]?.especialidad || 'General') === fProf);
+  if (fDesde) items = items.filter((v) => String(v.fecha || '') >= fDesde);
+  if (fHasta) items = items.filter((v) => String(v.fecha || '') <= fHasta + 'T23:59');
+  return items.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+ });
+
+ function fmtFecha(f) { return f ? new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' }) : '—'; }
+
+ function datosPacienteHTML(p, fotoUrl) {
+  return `
+  <div class="pac-head">
+   ${fotoUrl ? `<img class="pac-foto" src="${fotoUrl}" alt="" />` : '<div class="pac-foto vacio">Sin foto</div>'}
+   <div>
+    <h2>${p.nombre || ''} ${p.apellido || ''}</h2>
+    <p><strong>Edad:</strong> ${p.cedula ? p.cedula + ' años' : '—'} · <strong>Teléfono:</strong> ${p.telefono || '—'}<br/>
+    <strong>Dirección:</strong> ${p.direccion || '—'}<br/>
+    <strong>Diagnóstico / motivo:</strong> ${p.diagnostico || p.descripcion || 'Sin información registrada'}<br/>
+    <strong>Contacto de emergencia:</strong> ${p.contacto_emergencia || '—'} ${p.telefono_emergencia ? '· ' + p.telefono_emergencia : ''}</p>
+   </div>
+  </div>`;
+ }
+
+ function abrirImpresion(html, titulo) {
+  const w = window.open('', '_blank', 'width=900,height=700');
+  w.document.write(`<html><head><title>${titulo}</title><style>
+   body{font-family:Georgia,serif;color:#222;max-width:800px;margin:24px auto;padding:0 16px}
+   .logo{height:60px}.brand{display:flex;align-items:center;gap:12px;border-bottom:3px solid #c9a227;padding-bottom:12px}
+   .brand h1{font-size:1.2rem;margin:0;color:#234}
+   .pac-head{display:flex;gap:16px;margin:16px 0}
+   .pac-foto{width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #ccc}
+   .pac-foto.vacio{display:flex;align-items:center;justify-content:center;background:#eee;color:#888;font-size:.75rem}
+   h2{margin:0 0 6px;font-size:1.15rem}
+   table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:12px}
+   th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+   th{background:#f4f1e8}
+   .nota{border:1px solid #ddd;border-radius:8px;padding:10px;margin:10px 0;background:#faf9f5}
+   .nota h4{margin:0 0 6px;font-size:.9rem;color:#234}
+   .ev{display:inline-block;margin:6px 8px 0 0;text-align:center}
+   .ev img{width:120px;height:90px;object-fit:cover;border-radius:6px;border:1px solid #ccc}
+   .ev span{display:block;font-size:.68rem;color:#666;max-width:120px}
+   .footer{margin-top:24px;font-size:.72rem;color:#777;border-top:1px solid #ccc;padding-top:8px}
+   @media print{body{margin:0}}
+  </style></head><body>
+  <div class="brand"><img class="logo" src="${window.location.origin}/logo.png" alt=""/><h1>Agencia Gerontológica Integral</h1></div>
+  ${html}
+  <div class="footer">Documento generado por la plataforma — ${new Date().toLocaleString('es-EC')}</div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+  </body></html>`);
+  w.document.close();
+ }
+
+ async function imprimirPaquete() {
+  if (!exp) return;
+  const p = exp.paciente;
+  const pkg = paquetes.find((x) => x.id === p.paquete_id) || null;
+  const html = `
+   <h3 style="margin-top:18px">PAQUETE CONTRATADO</h3>
+   ${datosPacienteHTML(p, expFoto)}
+   <table>
+    <tr><th>Paquete</th><td>${pkg ? pkg.nombre : (p.tipo_servicio || 'Sin información registrada')}</td></tr>
+    <tr><th>Precio mensual</th><td>${pkg?.precio != null ? '$' + Number(pkg.precio).toFixed(2) : 'Sin información registrada'}</td></tr>
+    <tr><th>Servicios incluidos</th><td>${pkg?.servicios || pkg?.descripcion || 'Sin información registrada'}</td></tr>
+    <tr><th>Duración / frecuencia</th><td>${p.frecuencia_visitas || (pkg?.duracion_min ? Math.round(pkg.duracion_min / 60) + ' h por sesión' : 'Sin información registrada')}</td></tr>
+    <tr><th>Disciplinas profesionales</th><td>${pkg?.servicios ? 'Ver servicios incluidos' : 'Sin información registrada'}</td></tr>
+    <tr><th>Profesional / responsable asignado</th><td>${p.profesional_asignado || 'Sin información registrada'}</td></tr>
+    <tr><th>Fecha de contratación</th><td>${p.fecha_contratacion ? String(p.fecha_contratacion).slice(0, 10) : 'Sin información registrada'}</td></tr>
+    <tr><th>Inicio del servicio</th><td>${p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : 'Sin información registrada'}</td></tr>
+    <tr><th>Vigencia / término</th><td>${p.fecha_termino ? String(p.fecha_termino).slice(0, 10) : 'Sin información registrada'}</td></tr>
+   </table>`;
+  abrirImpresion(html, `Paquete contratado — ${p.nombre} ${p.apellido}`);
+ }
+
+ async function imprimirHistorial() {
+  if (!exp) return;
+  const p = exp.paciente;
+  const items = historialFiltrado.slice().reverse(); // cronológico
+  const evPorNota = new Map();
+  for (const e of exp.evidencias || []) evPorNota.set(e.nota_id, [...(evPorNota.get(e.nota_id) || []), e]);
+  let cuerpo = '';
+  if (!items.length) cuerpo = '<p>Sin información registrada</p>';
+  for (const v of items) {
+   const prof = v.perfiles?.nombre || 'Personal';
+   const disc = v.perfiles?.especialidad || v.perfiles?.profesion || v.notas[0]?.especialidad || 'General';
+   for (const n of v.notas.length ? v.notas : [{ actividades: '', observaciones: '', evolucion: '', recomendaciones: '', material: '', incidencias: '', sesion: '', especialidad: disc }]) {
+    const evs = evPorNota.get(n.id) || [];
+    let imgs = '';
+    for (const e of evs) {
+     try {
+      const { url } = await api.evidenciaUrl(e.id);
+      imgs += `<div class="ev"><img src="${url}" alt=""/><span>${e.descripcion || e.nombre_archivo || ''}</span></div>`;
+     } catch { /* sin acceso */ }
+    }
+    cuerpo += `<div class="nota">
+     <h4>${fmtFecha(v.fecha)} · ${prof} · ${n.especialidad || disc}${n.sesion ? ' · ' + n.sesion : ''}</h4>
+     ${n.actividades ? `<p><strong>Actividades:</strong> ${n.actividades}</p>` : ''}
+     ${n.observaciones ? `<p><strong>Observaciones:</strong> ${n.observaciones}</p>` : ''}
+     ${n.evolucion ? `<p><strong>Evolución:</strong> ${n.evolucion}</p>` : ''}
+     ${n.recomendaciones ? `<p><strong>Recomendaciones:</strong> ${n.recomendaciones}</p>` : ''}
+     ${n.incidencias ? `<p><strong>Incidencias:</strong> ${n.incidencias}</p>` : ''}
+     ${n.material ? `<p><strong>Material:</strong> ${n.material}</p>` : ''}
+     ${imgs}
+    </div>`;
+   }
+  }
+  const html = `
+   <h3 style="margin-top:18px">HISTORIAL DE EVOLUCIÓN</h3>
+   ${datosPacienteHTML(p, expFoto)}
+   <p><strong>Diagnóstico / motivo:</strong> ${p.diagnostico || p.descripcion || 'Sin información registrada'}<br/>
+   <strong>Objetivos:</strong> ${p.objetivos || 'Sin información registrada'}<br/>
+   <strong>Antecedentes:</strong> ${p.antecedentes || 'Sin información registrada'}</p>
+   ${cuerpo}`;
+  abrirImpresion(html, `Historial de evolución — ${p.nombre} ${p.apellido}`);
+ }
+
  onMount(async () => {
   if (!getToken()) { loading = false; return; }
   try {
@@ -184,6 +400,7 @@
  </select>
  </td>
  <td class="acciones">
+ <button class="mini" onclick={() => abrirExpediente(p)}>Expediente</button>
  <button class="mini" onclick={() => { window.location.href = `/?editar=${p.id}`; }}>Editar</button>
  <button class="mini" onclick={() => abrirQR(p)}>QR</button>
  <button class="mini danger" onclick={() => eliminar(p)}>Eliminar</button>
@@ -214,6 +431,114 @@
  </div>
  </div>
 {/if}
+{/if}
+
+{#if exp}
+ <div class="exp-overlay" role="presentation" onclick={cerrarExpediente}>
+ <div class="exp-sheet" onclick={(e) => e.stopPropagation()}>
+  <div class="exp-head">
+   <div class="exp-id">
+    {#if expFoto}<img class="exp-foto" src={expFoto} alt="" />{:else}<div class="exp-foto vacio">Sin foto</div>{/if}
+    <div>
+     <h3>{exp.paciente.nombre} {exp.paciente.apellido}</h3>
+     <p class="muted">{exp.paciente.cedula ? exp.paciente.cedula + ' años · ' : ''}{exp.paciente.telefono || '—'} · {exp.paciente.direccion || '—'}</p>
+    </div>
+   </div>
+   <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+  </div>
+
+  {#if expErr}<p class="error">{expErr}</p>{/if}
+  {#if expMsg}<p class="ok">{expMsg}</p>{/if}
+  {#if expLoading}<p class="muted">Cargando expediente…</p>{/if}
+
+  <div class="exp-grid">
+   <section class="exp-col">
+    <h4>Fotografía del paciente</h4>
+    <div class="foto-row">
+     <label class="mini ghost foto-btn">{expFoto ? 'Cambiar foto' : 'Subir foto'}
+      <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoExp} />
+     </label>
+     {#if expFoto}<button class="mini danger" onclick={quitarFotoExp}>Quitar</button>{/if}
+    </div>
+    <p class="muted small">JPG o PNG. Visible solo para personal autorizado.</p>
+
+    <h4>Paquete contratado</h4>
+    <label class="exp-label">Paquete
+     <select bind:value={expForm.paquete_id}>
+      <option value="">— Sin paquete —</option>
+      {#each paquetes as pk (pk.id)}
+       <option value={pk.id}>{pk.nombre} — ${Number(pk.precio || 0).toFixed(2)}/mes</option>
+      {/each}
+     </select>
+    </label>
+    <label class="exp-label">Frecuencia de visitas / sesiones
+     <input bind:value={expForm.frecuencia_visitas} placeholder="Ej: 3 veces por semana, 1 h por sesión" />
+    </label>
+    <label class="exp-label">Profesional / responsable asignado
+     <input bind:value={expForm.profesional_asignado} placeholder="Ej: Lic. María Pérez — Enfermería" />
+    </label>
+    <label class="exp-label">Diagnóstico / motivo de atención
+     <textarea bind:value={expForm.diagnostico} rows="2"></textarea>
+    </label>
+    <label class="exp-label">Antecedentes relevantes
+     <textarea bind:value={expForm.antecedentes} rows="2"></textarea>
+    </label>
+    <label class="exp-label">Objetivos de intervención
+     <textarea bind:value={expForm.objetivos} rows="2"></textarea>
+    </label>
+    <button class="mini" onclick={guardarExpediente}>Guardar expediente</button>
+   </section>
+
+   <section class="exp-col">
+    <h4>Seguimiento y evolución</h4>
+    {#if stats}
+    <div class="stat-chips">
+     <span class="chip">Sesiones: {stats.totalSesiones}</span>
+     <span class="chip">Completadas: {stats.completadas}</span>
+     <span class="chip warn">Pendientes: {stats.pendientes}</span>
+     <span class="chip">Con nota: {stats.conNota}</span>
+     <span class="chip ok">Avance: {stats.avance}%</span>
+     <span class="chip">Evidencias: {stats.evidencias}</span>
+    </div>
+    <div class="filtros">
+     <select bind:value={fProf}><option value="">Todas las disciplinas</option>{#each stats.profs as pr}<option value={pr}>{pr}</option>{/each}</select>
+     <input type="date" bind:value={fDesde} title="Desde" />
+     <input type="date" bind:value={fHasta} title="Hasta" />
+    </div>
+    {/if}
+
+    <div class="exp-acciones">
+     <button class="mini" onclick={imprimirPaquete}>Imprimir paquete contratado</button>
+     <button class="mini" onclick={imprimirHistorial}>Imprimir historial de evolución</button>
+    </div>
+
+    <div class="historial">
+     {#each historialFiltrado as v (v.id)}
+      <div class="h-item">
+       <strong>{fmtFecha(v.fecha)} · {v.hora_programada || ''}</strong>
+       <span class="muted"> · {v.perfiles?.nombre || 'Personal'}{v.perfiles?.especialidad ? ' · ' + v.perfiles.especialidad : ''} · {v.estado}</span>
+       {#if v.notas.length}
+        {#each v.notas as n (n.id)}
+         <div class="h-nota">
+          {#if n.especialidad || n.sesion}<span class="muted small">{[n.especialidad, n.sesion].filter(Boolean).join(' · ')}</span>{/if}
+          {#if n.actividades}<p><strong>Actividades:</strong> {n.actividades}</p>{/if}
+          {#if n.evolucion}<p><strong>Evolución:</strong> {n.evolucion}</p>{/if}
+          {#if n.observaciones}<p><strong>Observaciones:</strong> {n.observaciones}</p>{/if}
+          {#if n.recomendaciones}<p><strong>Recomendaciones:</strong> {n.recomendaciones}</p>{/if}
+         </div>
+        {/each}
+       {:else}
+        <p class="muted small">Sin nota de evolución registrada</p>
+       {/if}
+      </div>
+     {:else}
+      <p class="muted">Sin información registrada</p>
+     {/each}
+    </div>
+   </section>
+  </div>
+ </div>
+ </div>
 {/if}
 
 <style>
@@ -266,4 +591,29 @@ th, td { text-align: left; padding:.5rem.4rem; border-bottom: 1px solid oklch(0.
 .qr-logo { height: 56px; }
 .qr-img { width: 240px; height: 240px; image-rendering: pixelated; margin: .8rem auto; display: block; }
 .qr-id { font-family: monospace; font-size: .8rem; color: oklch(0.5 0.03 85); word-break: break-all; }
+.exp-overlay { position: fixed; inset: 0; background: oklch(0.2 0.03 260 / .5); display: flex; align-items: flex-start; justify-content: center; z-index: 60; padding: 1.5rem 1rem; overflow-y: auto; }
+.exp-sheet { background: #fff; border-radius: 16px; padding: 1.25rem; max-width: 980px; width: 100%; box-shadow: 0 10px 40px oklch(0.2 0.03 260 / .3); }
+.exp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid oklch(0.93 0.025 140); padding-bottom: .75rem; }
+.exp-head h3 { margin: 0; }
+.exp-id { display: flex; gap: .9rem; align-items: center; }
+.exp-foto { width: 72px; height: 72px; object-fit: cover; border-radius: 12px; border: 1px solid oklch(0.86 0.02 85); }
+.exp-foto.vacio { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.02 85); color: oklch(0.5 0.03 85); font-size: .7rem; }
+.exp-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.5rem; margin-top: 1rem; }
+@media (max-width: 800px) { .exp-grid { grid-template-columns: 1fr; } }
+.exp-col h4 { margin: 1rem 0 .5rem; font-size: .95rem; color: oklch(0.3 0.05 222); }
+.exp-label { display: flex; flex-direction: column; gap: .25rem; font-size: .8rem; font-weight: 600; margin-bottom: .6rem; }
+.exp-label input, .exp-label select, .exp-label textarea { padding: .45rem .55rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-weight: 400; }
+.foto-row { display: flex; gap: .5rem; align-items: center; }
+.foto-btn { position: relative; overflow: hidden; }
+.hidden { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.stat-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }
+.chip { font-size: .72rem; background: oklch(0.94 0.025 140); border-radius: 999px; padding: .2rem .6rem; }
+.chip.ok { background: #d1e7dd; } .chip.warn { background: #fff3cd; }
+.filtros { display: flex; gap: .5rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.filtros select, .filtros input { padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-size: .8rem; }
+.exp-acciones { display: flex; gap: .5rem; margin-bottom: .8rem; flex-wrap: wrap; }
+.historial { max-height: 55vh; overflow-y: auto; }
+.h-item { border-bottom: 1px solid oklch(0.93 0.025 140); padding: .6rem 0; font-size: .85rem; }
+.h-nota { margin: .4rem 0 .4rem .8rem; padding-left: .6rem; border-left: 2px solid oklch(0.7 0.1 78); }
+.h-nota p { margin: .15rem 0; font-size: .82rem; }
 </style>
