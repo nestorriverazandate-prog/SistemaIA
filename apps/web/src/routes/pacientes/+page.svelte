@@ -130,6 +130,12 @@
  let fProf = $state('');
  let fDesde = $state('');
  let fHasta = $state('');
+ // Filtros de la línea de tiempo "Evolución"
+ let tDesde = $state('');
+ let tHasta = $state('');
+ let tProf = $state('');
+ let tDisc = $state('');
+ let evUrls = $state({});
  let camVisible = $state(false);
 
  async function abrirExpediente(p) {
@@ -153,6 +159,11 @@
    ]);
    exp = exped;
    expFoto = foto || '';
+   // URLs firmadas de evidencias para la línea de tiempo (máx. 60)
+   evUrls = {};
+   for (const e of (exped.evidencias || []).slice(0, 60)) {
+    api.evidenciaUrl(e.id).then((r) => { evUrls = { ...evUrls, [e.id]: r.url }; }).catch(() => {});
+   }
   } catch (e) { expErr = e.message; }
   finally { expLoading = false; }
  }
@@ -231,6 +242,39 @@
  });
 
  function fmtFecha(f) { return f ? new Date(f).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' }) : '—'; }
+
+ // Línea de tiempo cronológica de intervenciones
+ const timeline = $derived.by(() => {
+  if (!exp) return [];
+  const vById = new Map((exp.visitas || []).map((v) => [v.id, v]));
+  let items = (exp.notas || []).map((n) => {
+   const v = n.visita_id ? vById.get(n.visita_id) : null;
+   return {
+    n, v,
+    fecha: v?.fecha || String(n.created_at || '').slice(0, 10),
+    hora: v?.hora_programada || '',
+    prof: v?.perfiles?.nombre || v?.perfiles?.email || 'Personal',
+    disc: n.especialidad || v?.perfiles?.especialidad || v?.perfiles?.profesion || 'General',
+    tipo: n.sesion || 'Atención'
+   };
+  }).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.n.created_at || '').localeCompare(String(a.n.created_at || '')));
+  if (tDesde) items = items.filter((i) => String(i.fecha) >= tDesde);
+  if (tHasta) items = items.filter((i) => String(i.fecha) <= tHasta);
+  if (tProf) items = items.filter((i) => i.prof === tProf);
+  if (tDisc) items = items.filter((i) => i.disc === tDisc);
+  return items;
+ });
+ const tProfs = $derived([...new Set((exp?.notas || []).map((n) => {
+  const v = (exp.visitas || []).find((x) => x.id === n.visita_id);
+  return v?.perfiles?.nombre || v?.perfiles?.email || 'Personal';
+ }))].sort());
+ const tDiscs = $derived([...new Set((exp?.notas || []).map((n) => n.especialidad || 'General'))].sort());
+ const evPorNotaTl = $derived.by(() => {
+  const m = new Map();
+  for (const e of exp?.evidencias || []) m.set(e.nota_id, [...(m.get(e.nota_id) || []), e]);
+  return m;
+ });
+ function fmtSoloFecha(f) { return f ? new Date(f.length === 10 ? f + 'T12:00:00' : f).toLocaleDateString('es-EC', { dateStyle: 'medium' }) : '—'; }
 
  function datosPacienteHTML(p, fotoUrl) {
   return `
@@ -593,6 +637,48 @@
     </div>
    </section>
   </div>
+
+  <!-- ===== Línea de tiempo: Evolución ===== -->
+  <section class="tl-section">
+   <div class="tl-head">
+    <h4>Evolución — línea de tiempo de intervenciones</h4>
+    <button class="mini" onclick={imprimirHistorial}>Imprimir / PDF</button>
+   </div>
+   <div class="filtros">
+    <input type="date" bind:value={tDesde} title="Desde" />
+    <input type="date" bind:value={tHasta} title="Hasta" />
+    <select bind:value={tProf}><option value="">Todos los profesionales</option>{#each tProfs as pr}<option value={pr}>{pr}</option>{/each}</select>
+    <select bind:value={tDisc}><option value="">Todas las disciplinas</option>{#each tDiscs as d}<option value={d}>{d}</option>{/each}</select>
+   </div>
+   <div class="timeline">
+    {#each timeline as it (it.n.id)}
+     <div class="tl-item">
+      <div class="tl-dot"></div>
+      <div class="tl-card">
+       <div class="tl-meta">
+        <strong>{fmtSoloFecha(it.fecha)}{it.hora ? ' · ' + it.hora : ''}</strong>
+        <span class="muted"> · {it.prof} · {it.disc} · {it.tipo}</span>
+       </div>
+       {#if it.n.actividades}<p><strong>Actividades:</strong> {it.n.actividades}</p>{/if}
+       {#if it.n.evolucion}<p><strong>Evolución:</strong> {it.n.evolucion}</p>{/if}
+       {#if it.n.observaciones}<p><strong>Observaciones:</strong> {it.n.observaciones}</p>{/if}
+       {#if it.n.recomendaciones}<p><strong>Recomendaciones:</strong> {it.n.recomendaciones}</p>{/if}
+       {#if it.n.incidencias}<p class="incidencia"><strong>⚠ Incidencia:</strong> {it.n.incidencias}</p>{/if}
+       {#if it.n.revisado}<span class="revisado-badge">✓ Revisado{it.n.revisado_por ? ' por ' + it.n.revisado_por : ''}</span>{/if}
+       {#if (evPorNotaTl.get(it.n.id) || []).length}
+        <div class="tl-evs">
+         {#each evPorNotaTl.get(it.n.id) as e (e.id)}
+          {#if evUrls[e.id]}<img class="tl-ev" src={evUrls[e.id]} alt={e.descripcion || ''} title={e.descripcion || ''} />{/if}
+         {/each}
+        </div>
+       {/if}
+      </div>
+     </div>
+    {:else}
+     <p class="muted">Sin información registrada</p>
+    {/each}
+   </div>
+  </section>
  </div>
  </div>
 {/if}
@@ -674,6 +760,21 @@ th, td { text-align: left; padding:.5rem.4rem; border-bottom: 1px solid oklch(0.
 .h-item { border-bottom: 1px solid oklch(0.93 0.025 140); padding: .6rem 0; font-size: .85rem; }
 .h-nota { margin: .4rem 0 .4rem .8rem; padding-left: .6rem; border-left: 2px solid oklch(0.7 0.1 78); }
 .h-nota p { margin: .15rem 0; font-size: .82rem; }
+.tl-section { margin-top: 1.5rem; border-top: 2px solid oklch(0.93 0.025 140); padding-top: 1rem; }
+.tl-head { display: flex; justify-content: space-between; align-items: center; }
+.tl-head h4 { margin: 0; }
+.tl-section .filtros { margin: .7rem 0; }
+.timeline { position: relative; padding-left: 1.4rem; max-height: 60vh; overflow-y: auto; }
+.timeline::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 2px; background: oklch(0.8 0.05 220); }
+.tl-item { position: relative; margin-bottom: .9rem; }
+.tl-dot { position: absolute; left: -1.4rem; top: 6px; width: 14px; height: 14px; border-radius: 50%; background: oklch(0.42 0.068 218); border: 3px solid #fff; box-shadow: 0 0 0 1px oklch(0.8 0.05 220); }
+.tl-card { background: oklch(0.985 0.008 140); border: 1px solid oklch(0.92 0.02 140); border-radius: 10px; padding: .7rem .9rem; font-size: .85rem; }
+.tl-meta { margin-bottom: .3rem; }
+.tl-card p { margin: .15rem 0; }
+.tl-card .incidencia { color: oklch(0.55 0.2 27); }
+.revisado-badge { display: inline-block; font-size: .7rem; background: #d1e7dd; color: #0f5132; border-radius: 999px; padding: .1rem .5rem; margin-top: .3rem; }
+.tl-evs { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+.tl-ev { width: 90px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid oklch(0.86 0.02 85); cursor: pointer; }
 </style>
 
 <FotoCamara bind:visible={camVisible} onCapture={setFotoExp} />
