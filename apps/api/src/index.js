@@ -763,6 +763,7 @@ app.post('/api/pacientes', requireUser, async (req, res) => {
       }
     }
 
+    broadcast({ tipo: 'paciente', datos: { id: data.id } });
     await appendToDriveDoc(data);
     res.status(201).json({ paciente: data });
   } catch (e) {
@@ -826,6 +827,7 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
         }
       }
     }
+    broadcast({ tipo: 'paciente', datos: { id: req.params.id } });
     res.json({ paciente: resUpdate.data });
   } catch (e) {
     console.error('PATCH paciente:', e);

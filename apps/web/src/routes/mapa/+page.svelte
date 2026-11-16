@@ -269,7 +269,7 @@
     await cargarDatos();
     pollTimer = setInterval(cargarDatos, 20000); // respaldo; el SSE actualiza al instante
     const es = new EventSource('/api/eventos');
-    es.onmessage = (e) => { try { if (JSON.parse(e.data).tipo === 'notificacion') cargarDatos(); } catch {} };
+    es.onmessage = (e) => { try { const t = JSON.parse(e.data).tipo; if (t === 'notificacion' || t === 'paciente') cargarDatos(); } catch {} };
 
     return () => { if (map) map.remove(); if (pollTimer) clearInterval(pollTimer); es.close(); window.removeEventListener('pageshow', onPageShow); };
   });
