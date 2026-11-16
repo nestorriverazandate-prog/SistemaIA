@@ -662,9 +662,9 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 });
 
 // ---------- Pacientes ----------
-const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos'];
+const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
-const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos'];
+const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion'];
 // Campos de fecha: '' del formulario se guarda como null
 const CAMPOS_FECHA = new Set(['fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'fecha_contratacion', 'fecha_nacimiento']);
 
@@ -896,16 +896,18 @@ app.get('/api/pacientes/:id/expediente', requireUser, async (req, res) => {
       const { data: v } = await supabase.from('visitas').select('id, estado').eq('paciente_id', req.params.id).eq('trabajador_id', req.user.id).limit(5);
       if (!(v || []).some((x) => !['cancelada', 'no_show'].includes(x.estado))) return res.status(403).json({ error: 'Paciente no asignado' });
     }
-    const [{ data: visitas }, { data: notas }, { data: evidencias }] = await Promise.all([
+    const [{ data: visitas }, { data: notas }, { data: evidencias }, { data: auditoria }] = await Promise.all([
       supabase.from('visitas').select('*, perfiles!visitas_trabajador_id_fkey(nombre, profesion, especialidad)').eq('paciente_id', req.params.id).order('fecha', { ascending: false }).limit(300),
       supabase.from('notas_atencion').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(500),
-      supabase.from('evidencias').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(1000)
+      supabase.from('evidencias').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(1000),
+      isAdmin(req) ? supabase.from('auditoria_expediente').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(200) : Promise.resolve({ data: [] })
     ]);
     res.json({
       paciente: p,
       visitas: visitas || [],
       notas: notas || [],
-      evidencias: (evidencias || []).map((e) => ({ id: e.id, nota_id: e.nota_id, visita_id: e.visita_id, descripcion: e.descripcion, nombre_archivo: e.nombre_archivo, created_at: e.created_at }))
+      evidencias: (evidencias || []).map((e) => ({ id: e.id, nota_id: e.nota_id, visita_id: e.visita_id, descripcion: e.descripcion, nombre_archivo: e.nombre_archivo, created_at: e.created_at })),
+      auditoria: auditoria?.data || []
     });
   } catch (e) {
     console.error('GET expediente:', e);
@@ -1917,7 +1919,7 @@ app.post('/api/visitas/:id/nota', requireUser, async (req, res) => {
     if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
     const esPropia = v.trabajador_id === req.user.id;
     if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Solo el trabajador asignado' });
-    const campos = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material', 'sesion', 'especialidad'];
+    const campos = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material', 'sesion', 'especialidad', 'objetivos'];
     const nota = {};
     for (const c of campos) if (req.body[c] != null) nota[c] = String(req.body[c]).slice(0, 4000);
     if (!Object.keys(nota).length) return res.status(400).json({ error: 'Escribe al menos un campo' });
@@ -1950,6 +1952,7 @@ app.post('/api/visitas/:id/nota', requireUser, async (req, res) => {
     }
 
     await logEvento(v.id, 'nota_atencion', { por: req.user.email, evidencias: evidencias.length });
+    await auditarExpediente(v.paciente_id, data.id, req.user.email, 'nota_creada', { visita_id: v.id, especialidad: nota.especialidad || null });
 
     // Notificación inmediata al directivo
     const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', v.paciente_id).maybeSingle();
@@ -2045,14 +2048,34 @@ app.get('/api/seguimiento', requireUser, async (req, res) => {
 });
 
 // Revisión del directivo: marcar revisado / comentar / solicitar corrección
-app.patch('/api/notas/:id', requireUser, async (req, res) => {
-  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+// Auditoría del expediente multidisciplinario
+async function auditarExpediente(paciente_id, nota_id, actor, accion, detalle = {}) {
   try {
+   await supabase.from('auditoria_expediente').insert({ paciente_id, nota_id: nota_id || null, actor, accion, detalle });
+  } catch (e) { console.error('auditarExpediente:', e.message); }
+}
+
+app.patch('/api/notas/:id', requireUser, async (req, res) => {
+  try {
+    const { data: notaActual } = await supabase.from('notas_atencion').select('*').eq('id', req.params.id).maybeSingle();
+    if (!notaActual) return res.status(404).json({ error: 'Nota no encontrada' });
+    const esAdminUser = isAdmin(req);
+    const esDuenio = notaActual.trabajador_id === req.user.id;
+    if (!esAdminUser && !esDuenio) return res.status(403).json({ error: 'Solo el autor o el directivo' });
+    // Registro cerrado: el autor no puede modificarlo; el directivo sí (con trazabilidad)
+    if (notaActual.cerrada && !esAdminUser) return res.status(403).json({ error: 'Registro cerrado — contacta al directivo para correcciones' });
+
     const update = {};
-    if (req.body.revisado != null) { update.revisado = !!req.body.revisado; update.revisado_at = new Date().toISOString(); update.revisado_por = req.user.email; }
-    if (req.body.comentario_admin != null) update.comentario_admin = String(req.body.comentario_admin).slice(0, 2000);
-    if (req.body.correccion != null) update.correccion = String(req.body.correccion).slice(0, 2000);
+    if (esAdminUser) {
+      if (req.body.revisado != null) { update.revisado = !!req.body.revisado; update.revisado_at = new Date().toISOString(); update.revisado_por = req.user.email; }
+      if (req.body.comentario_admin != null) update.comentario_admin = String(req.body.comentario_admin).slice(0, 2000);
+      if (req.body.correccion != null) update.correccion = String(req.body.correccion).slice(0, 2000);
+    }
+    // El autor (o admin) puede editar el contenido de su nota si no está cerrada
+    const editables = ['actividades', 'observaciones', 'evolucion', 'incidencias', 'recomendaciones', 'material', 'sesion', 'especialidad', 'objetivos'];
+    for (const c of editables) if (req.body[c] != null && (!notaActual.cerrada || esAdminUser)) update[c] = String(req.body[c]).slice(0, 4000);
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+
     let { data, error } = await supabase.from('notas_atencion').update(update).eq('id', req.params.id).select().single();
     if (error && /revisado|comentario_admin|correccion|PGRST204|column/i.test(error.message || '')) {
       // Columnas nuevas pueden no existir aún → reintentar solo con las básicas
@@ -2063,6 +2086,7 @@ app.patch('/api/notas/:id', requireUser, async (req, res) => {
       ({ data, error } = await supabase.from('notas_atencion').update(limpio).eq('id', req.params.id).select().single());
     }
     if (error) throw error;
+    await auditarExpediente(notaActual.paciente_id, req.params.id, req.user.email, notaActual.cerrada ? 'correccion_admin' : 'nota_editada', { campos: Object.keys(update) });
     if (req.body.correccion) {
       const { data: n } = await supabase.from('notas_atencion').select('trabajador_id, paciente_id, visita_id').eq('id', req.params.id).maybeSingle();
       if (n?.trabajador_id) {
@@ -2078,6 +2102,25 @@ app.patch('/api/notas/:id', requireUser, async (req, res) => {
   } catch (e) {
     console.error('PATCH nota:', e);
     res.status(500).json({ error: 'Error al actualizar nota' });
+  }
+});
+
+// Cerrar nota de evolución: queda inmutable (correcciones solo por directivo con trazabilidad)
+app.post('/api/notas/:id/cerrar', requireUser, async (req, res) => {
+  try {
+    const { data: nota } = await supabase.from('notas_atencion').select('trabajador_id, paciente_id, cerrada').eq('id', req.params.id).maybeSingle();
+    if (!nota) return res.status(404).json({ error: 'Nota no encontrada' });
+    if (!isAdmin(req) && nota.trabajador_id !== req.user.id) return res.status(403).json({ error: 'Solo el autor o el directivo' });
+    if (nota.cerrada) return res.status(400).json({ error: 'La nota ya está cerrada' });
+    const { data, error } = await supabase.from('notas_atencion').update({
+      cerrada: true, cerrada_at: new Date().toISOString(), cerrada_por: req.user.email
+    }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    await auditarExpediente(nota.paciente_id, req.params.id, req.user.email, 'nota_cerrada', {});
+    res.json({ nota: data });
+  } catch (e) {
+    console.error('POST cerrar nota:', e);
+    res.status(500).json({ error: 'Error al cerrar nota' });
   }
 });
 

@@ -229,6 +229,23 @@ create table if not exists public.vinculos_familiar (
 create index if not exists vinculos_familiar_fam_idx on public.vinculos_familiar (familiar_id);
 create index if not exists vinculos_familiar_pac_idx on public.vinculos_familiar (paciente_id);
 alter table public.vinculos_familiar enable row level security;
+-- Expediente multidisciplinario: objetivos por disciplina, cierre de registros y auditoría
+alter table public.notas_atencion add column if not exists objetivos text;
+alter table public.notas_atencion add column if not exists cerrada boolean not null default false;
+alter table public.notas_atencion add column if not exists cerrada_at timestamptz;
+alter table public.notas_atencion add column if not exists cerrada_por text;
+alter table public.pacientes add column if not exists plan_atencion text;
+create table if not exists public.auditoria_expediente (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  nota_id uuid references public.notas_atencion (id) on delete set null,
+  actor text not null,
+  accion text not null,
+  detalle jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists auditoria_exp_pac_idx on public.auditoria_expediente (paciente_id);
+alter table public.auditoria_expediente enable row level security;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (

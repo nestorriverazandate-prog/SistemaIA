@@ -123,6 +123,7 @@ export const api = {
   vincularFamiliar: (paciente_id, familiar_id) => request('/api/vinculos', { method: 'POST', body: JSON.stringify({ paciente_id, familiar_id }) }),
   desvincularFamiliar: (id, activo = false) => request(`/api/vinculos/${id}`, { method: 'PATCH', body: JSON.stringify({ activo }) }),
   enviarMensaje: (texto) => request('/api/mensajes', { method: 'POST', body: JSON.stringify({ texto }) }),
+  cerrarNota: (id) => request(`/api/notas/${id}/cerrar`, { method: 'POST' }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

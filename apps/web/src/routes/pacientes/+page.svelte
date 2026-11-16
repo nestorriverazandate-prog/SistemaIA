@@ -577,7 +577,10 @@
      <p class="muted">{exp.paciente.cedula ? exp.paciente.cedula + ' años · ' : ''}{exp.paciente.telefono || '—'} · {exp.paciente.direccion || '—'}</p>
     </div>
    </div>
-   <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+   <div class="exp-acciones">
+    <a class="mini link" href="/expediente?id={exp.paciente.id}" target="_blank" title="Expediente multidisciplinario compartido">📋 Expediente multidisciplinario</a>
+    <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+   </div>
   </div>
 
   {#if expErr}<p class="error">{expErr}</p>{/if}

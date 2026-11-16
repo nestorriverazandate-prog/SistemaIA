@@ -113,7 +113,10 @@
      <p class="muted">{exp.paciente.cedula ? exp.paciente.cedula + ' años · ' : ''}{exp.paciente.telefono || '—'} · {exp.paciente.direccion || '—'}</p>
     </div>
    </div>
-   <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+   <div class="exp-acciones">
+    <a class="mini link" href="/expediente?id={exp.paciente.id}" target="_blank" title="Expediente multidisciplinario compartido">📋 Expediente multidisciplinario</a>
+    <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+   </div>
   </div>
   {#if expErr}<p class="error">{expErr}</p>{/if}
   {#if expLoading}<p class="muted">Cargando expediente…</p>{/if}
@@ -174,6 +177,8 @@ h2 { margin-top: 0; font-size: 1.05rem; }
 .exp-sheet { background: #fff; border-radius: 16px; padding: 1.25rem; max-width: 720px; width: 100%; box-shadow: 0 10px 40px oklch(0.2 0.03 260 / .3); }
 .exp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid oklch(0.93 0.025 140); padding-bottom: .75rem; }
 .exp-head h3 { margin: 0; }
+.exp-acciones { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.exp-acciones .link { padding:.3rem .7rem; border:1px solid oklch(0.45 0.03 225); border-radius:8px; text-decoration:none; color:oklch(0.35 0.05 222); font-size:.78rem; font-weight:600; }
 .exp-id { display: flex; gap: .9rem; align-items: center; }
 .exp-foto { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; }
 .exp-foto.vacio { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.02 85); }
