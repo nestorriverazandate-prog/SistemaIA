@@ -839,7 +839,7 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
 app.get('/api/mis-pacientes', requireUser, async (req, res) => {
   try {
     if (isAdmin(req)) return res.status(403).json({ error: 'Usa el directorio de pacientes' });
-    if (req.user?.perfil?.rol !== 'staff') return res.status(403).json({ error: 'Solo trabajadores' });
+    if (req.user?.perfil?.estado && req.user.perfil.estado !== 'aprobado') return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
     const { data: vs } = await supabase.from('visitas').select('paciente_id, estado').eq('trabajador_id', req.user.id);
     const ids = [...new Set((vs || []).filter((v) => !['cancelada', 'no_show'].includes(v.estado)).map((v) => v.paciente_id).filter(Boolean))];
     if (!ids.length) return res.json({ pacientes: [] });
