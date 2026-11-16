@@ -45,7 +45,7 @@
   try {
    const { user: me } = await api.me();
    perfil = me.perfil;
-   if (!perfil || perfil.estado === 'rechazado') { loading = false; return; }
+   if (!['staff', 'cuidador', 'familiar', 'admin'].includes(perfil?.rol) || perfil?.estado === 'rechazado') { loading = false; return; }
    await cargar();
   } catch { setToken(null); }
   finally { loading = false; }
@@ -57,8 +57,8 @@
 
 {#if loading}
  <main class="card center"><p>Cargando…</p></main>
-{:else if !perfil}
- <main class="card center"><h1>Acceso restringido</h1><p class="muted">Inicia sesión para continuar.</p><a class="ghost link" href="/">Volver</a></main>
+{:else if !perfil || !['staff', 'cuidador', 'familiar', 'admin'].includes(perfil.rol)}
+ <main class="card center"><h1>Acceso restringido</h1><p class="muted">Esta sección es para personal empleado.</p><a class="ghost link" href="/">Volver</a></main>
 {:else}
 <header>
  <a class="brand" href="/">

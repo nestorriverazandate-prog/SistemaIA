@@ -839,6 +839,7 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
 app.get('/api/mis-pacientes', requireUser, async (req, res) => {
   try {
     if (isAdmin(req)) return res.status(403).json({ error: 'Usa el directorio de pacientes' });
+    if (!['staff', 'cuidador', 'familiar'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Solo personal empleado' });
     if (req.user?.perfil?.estado && req.user.perfil.estado !== 'aprobado') return res.status(403).json({ error: 'Cuenta pendiente de aprobación' });
     const { data: vs } = await supabase.from('visitas').select('paciente_id, estado').eq('trabajador_id', req.user.id);
     const ids = [...new Set((vs || []).filter((v) => !['cancelada', 'no_show'].includes(v.estado)).map((v) => v.paciente_id).filter(Boolean))];
@@ -890,7 +891,7 @@ app.get('/api/pacientes/:id/expediente', requireUser, async (req, res) => {
   try {
     const { data: p } = await supabase.from('pacientes').select('*').eq('id', req.params.id).maybeSingle();
     if (!p) return res.status(404).json({ error: 'Paciente no encontrado' });
-    if (!isAdmin(req) && req.user?.perfil?.rol !== 'staff') return res.status(403).json({ error: 'Sin permiso' });
+    if (!isAdmin(req) && !['staff', 'cuidador', 'familiar'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Sin permiso' });
     if (!isAdmin(req)) {
       const { data: v } = await supabase.from('visitas').select('id, estado').eq('paciente_id', req.params.id).eq('trabajador_id', req.user.id).limit(5);
       if (!(v || []).some((x) => !['cancelada', 'no_show'].includes(x.estado))) return res.status(403).json({ error: 'Paciente no asignado' });
