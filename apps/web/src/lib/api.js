@@ -115,6 +115,8 @@ export const api = {
   fotoPaciente: (id) => request(`/api/pacientes/${id}/foto`),
   fotoPerfil: (id) => request(`/api/perfiles/${id}/foto`),
   misPacientes: () => request('/api/mis-pacientes'),
+  semaforo: () => request('/api/semaforo'),
+  revisarAlerta: (id, acciones) => request(`/api/alertas/${id}/revisar`, { method: 'POST', body: JSON.stringify({ acciones }) }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

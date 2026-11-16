@@ -201,6 +201,21 @@ alter table public.pacientes add column if not exists objetivos text;
 alter table public.pacientes add column if not exists fecha_contratacion date;
 -- Fotografía de perfil del trabajador (credencial / expediente)
 alter table public.perfiles add column if not exists avatar_path text;
+-- Semáforo Inteligente de Bienestar: alertas por paciente
+create table if not exists public.alertas_semaforo (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  color text not null check (color in ('verde','amarillo','rojo')),
+  motivo text not null,
+  revisado boolean not null default false,
+  revisado_at timestamptz,
+  revisado_por text,
+  acciones text,
+  created_at timestamptz not null default now()
+);
+create index if not exists alertas_semaforo_pac_idx on public.alertas_semaforo (paciente_id);
+create index if not exists alertas_semaforo_abiertas_idx on public.alertas_semaforo (revisado) where revisado = false;
+alter table public.alertas_semaforo enable row level security;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (

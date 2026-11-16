@@ -1635,11 +1635,135 @@ function monitorVisitasThrottled() {
 
 // En Vercel el cron de Hobby solo corre 1 vez al día; el monitoreo fino
 // ocurre aquí, disparado por la actividad GPS real
+// ---------- Semáforo Inteligente de Bienestar (solo directivo) ----------
+// Evalúa SOLO el cumplimiento del seguimiento (visitas, notas, incidencias,
+// revisiones). No diagnostica ni evalúa estado clínico.
+const SEMAFORO_CFG = {
+  diasSinNotaAmarillo: 30,   // días desde la última nota de evolución
+  diasVisitaVencidaRojo: 2,  // visita programada sin realizar hace más de N días
+  diasVisitaProximaAmarillo: 3, // visita programada en los próximos N días
+  maxNotasRevision: 3        // notas sin revisar que disparan amarillo
+};
+
+async function calcularSemaforoPaciente(p) {
+  const [{ data: visitas }, { data: notas }] = await Promise.all([
+    supabase.from('visitas').select('id, fecha, hora_programada, estado,created_at').eq('paciente_id', p.id).order('fecha', { ascending: false }).limit(60),
+    supabase.from('notas_atencion').select('id, visita_id, actividades, evolucion, observaciones, incidencias, especialidad, sesion, revisado, created_at').eq('paciente_id', p.id).order('created_at', { ascending: false }).limit(200)
+  ]);
+  const vs = visitas || [];
+  const ns = notas || [];
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const hace = (d) => Math.floor((hoy - new Date(d)) / 86400000);
+  const motivos = [];
+  let rojo = false, amarillo = false;
+
+  // ROJO — visitas no realizadas / incidencias reportadas
+  for (const v of vs) {
+   if (v.estado === 'no_show') { rojo = true; motivos.push({ nivel: 'rojo', texto: `Visita no realizada (${v.fecha})`, fecha: v.fecha }); }
+   if (v.estado === 'programada' && hace(v.fecha) > SEMAFORO_CFG.diasVisitaVencidaRojo) {
+    rojo = true; motivos.push({ nivel: 'rojo', texto: `Visita programada vencida sin realizar (${v.fecha})`, fecha: v.fecha });
+   }
+  }
+  for (const n of ns) {
+   if (n.incidencias && String(n.incidencias).trim()) {
+    rojo = true; motivos.push({ nivel: 'rojo', texto: `Incidencia reportada en nota de evolución (${String(n.created_at).slice(0, 10)})`, fecha: n.created_at });
+    break;
+   }
+  }
+
+  // AMARILLO — valoraciones próximas a vencer, pendientes de confirmar/revisar
+  const ultimaNota = ns[0]?.created_at ? hace(ns[0].created_at) : null;
+  if (ultimaNota === null || ultimaNota > SEMAFORO_CFG.diasSinNotaAmarillo) {
+   amarillo = true; motivos.push({ nivel: 'amarillo', texto: ultimaNota === null ? 'Sin notas de evolución registradas' : `Última nota de evolución hace ${ultimaNota} días`, fecha: ns[0]?.created_at || null });
+  }
+  const pendientesRevision = ns.filter((n) => !n.revisado).length;
+  if (pendientesRevision > 0) {
+   amarillo = true; motivos.push({ nivel: 'amarillo', texto: `${pendientesRevision} nota(s) de evolución pendiente(s) de revisión`, fecha: null });
+  }
+  const proxima = vs.find((v) => v.estado === 'programada' && new Date(v.fecha) >= hoy);
+  if (proxima) {
+   const dias = Math.floor((new Date(proxima.fecha) - hoy) / 86400000);
+   if (dias <= SEMAFORO_CFG.diasVisitaProximaAmarillo) {
+    amarillo = true; motivos.push({ nivel: 'amarillo', texto: `Visita programada próxima (${proxima.fecha} ${proxima.hora_programada || ''})`, fecha: proxima.fecha });
+   }
+  }
+  // Notas incompletas: visita finalizada sin nota de evolución
+  const visitasFinalizadas = new Set(vs.filter((v) => v.estado === 'finalizada' || v.salida).map((v) => v.id));
+  const visitasConNota = new Set(ns.map((n) => n.visita_id).filter(Boolean));
+  const sinNota = [...visitasFinalizadas].filter((id) => !visitasConNota.has(id)).length;
+  if (sinNota > 0) {
+   amarillo = true; motivos.push({ nivel: 'amarillo', texto: `${sinNota} visita(s) finalizada(s) sin nota de evolución`, fecha: null });
+  }
+
+  const color = rojo ? 'rojo' : amarillo ? 'amarillo' : 'verde';
+  return { color, motivos, stats: { visitas: vs.length, notas: ns.length, pendientesRevision, ultimaNotaDias: ultimaNota } };
+}
+
+app.get('/api/semaforo', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+   const { data: pacientes } = await supabase.from('pacientes').select('*').order('nombre').limit(500);
+   const { data: alertas } = await supabase.from('alertas_semaforo').select('*').order('created_at', { ascending: false }).limit(1000);
+   const abiertasPorPac = {};
+   const historialPorPac = {};
+   for (const a of alertas || []) {
+    (historialPorPac[a.paciente_id] ||= []).push(a);
+    if (!a.revisado && !abiertasPorPac[a.paciente_id]) abiertasPorPac[a.paciente_id] = a;
+   }
+   const items = [];
+   for (const p of pacientes || []) {
+    const s = await calcularSemaforoPaciente(p);
+    items.push({ paciente: p, color: s.color, motivos: s.motivos, stats: s.stats, alerta_abierta: abiertasPorPac[p.id] || null, alertas: (historialPorPac[p.id] || []).slice(0, 10) });
+   }
+   const resumen = { verde: 0, amarillo: 0, rojo: 0, alertas_abiertas: 0 };
+   for (const i of items) { resumen[i.color]++; if (i.alerta_abierta) resumen.alertas_abiertas++; }
+   res.json({ items, resumen });
+  } catch (e) {
+   console.error('GET /api/semaforo:', e);
+   res.status(500).json({ error: 'Error al calcular semáforo' });
+  }
+});
+
+app.post('/api/alertas/:id/revisar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+   const { acciones } = req.body || {};
+   const { data, error } = await supabase.from('alertas_semaforo')
+    .update({ revisado: true, revisado_at: new Date().toISOString(), revisado_por: req.user.email, acciones: String(acciones || '').slice(0, 1000) })
+    .eq('id', req.params.id).select().single();
+   if (error) throw error;
+   res.json({ alerta: data });
+  } catch (e) {
+   console.error('POST /api/alertas/:id/revisar:', e);
+   res.status(500).json({ error: 'Error al revisar alerta' });
+  }
+});
+
+// Escaneo del semáforo: crea alertas nuevas y notifica al directivo (lo llama el cron)
+async function revisarSemaforos() {
+  const { data: pacientes } = await supabase.from('pacientes').select('id, nombre, apellido').limit(500);
+  const { data: abiertas } = await supabase.from('alertas_semaforo').select('paciente_id').eq('revisado', false);
+  const conAbierta = new Set((abiertas || []).map((a) => a.paciente_id));
+  for (const p of pacientes || []) {
+   const s = await calcularSemaforoPaciente({ id: p.id });
+   if (s.color === 'verde' || conAbierta.has(p.id)) continue;
+   const motivoPrincipal = s.motivos[0]?.texto || `Semáforo ${s.color}`;
+   const { data: alerta } = await supabase.from('alertas_semaforo').insert({
+    paciente_id: p.id, color: s.color, motivo: motivoPrincipal
+   }).select().single();
+   if (alerta) {
+    conAbierta.add(p.id);
+    await notifyAdmins('alerta', `🚦 Semáforo ${s.color.toUpperCase()}: ${p.nombre} ${p.apellido} — ${motivoPrincipal}`, null, { paciente_id: p.id, color: s.color, alerta_id: alerta.id });
+   }
+  }
+}
+
 app.post('/api/cron/monitor', async (req, res) => {
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   await monitorVisitas();
+  await revisarSemaforos().catch((e) => console.error('revisarSemaforos:', e));
   res.json({ ok: true });
 });
 

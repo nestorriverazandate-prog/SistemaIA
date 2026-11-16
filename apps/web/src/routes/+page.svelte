@@ -498,6 +498,7 @@
  <a class="ghost link" href="/personal">Personal</a>
  <a class="ghost link" href="/pacientes">Pacientes</a>
  <a class="ghost link" href="/seguimiento">Seguimiento</a>
+ <a class="ghost link" href="/semaforo">Semáforo</a>
  <a class="ghost link" href="/paquetes">Paquetes</a>
  <div class="notif-wrap">
  <button class="ghost bell" onclick={() => (notifAbiertas = !notifAbiertas)}>

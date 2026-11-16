@@ -7,6 +7,7 @@
  let perfil = $state(null);
  let loading = $state(true);
  let pacientes = $state([]);
+ let semaforos = $state({}); // paciente_id -> color
  let formError = $state('');
  let formOk = $state('');
 
@@ -18,6 +19,11 @@
  async function cargar() {
   const p = await api.pacientes();
   pacientes = p.pacientes;
+  api.semaforo().then((r) => {
+   const m = {};
+   for (const i of r.items || []) m[i.paciente.id] = i.color;
+   semaforos = m;
+  }).catch(() => {});
  }
 
  async function abrirQR(p) {
@@ -435,7 +441,7 @@
  <tbody>
  {#each pacientes as p (p.id)}
  <tr>
- <td>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
+ <td><span class="sem-dot {semaforos[p.id] || ''}"></span>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
  <td>{p.cedula ? p.cedula + ' años' : '—'}</td>
  <td>{p.tipo_servicio || '—'}{#if p.fecha_inicio || p.fecha_termino}<br/><small class="muted">Inicio: {p.fecha_inicio ? String(p.fecha_inicio).slice(0, 10) : '—'} · Fin: {p.fecha_termino ? String(p.fecha_termino).slice(0, 10) : '—'}</small>{/if}</td>
  <td><span class="estado estado-{p.estado}">{p.estado}</span></td>
@@ -636,6 +642,8 @@ th, td { text-align: left; padding:.5rem.4rem; border-bottom: 1px solid oklch(0.
 .estado-en_proceso { background: oklch(0.93 0.025 140); }
 .estado-completado,.estado-aprobado { background: #d1e7dd; }
 .estado-cancelado,.estado-rechazado { background: #f8d7da; }
+.sem-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: .35rem; vertical-align: middle; }
+.sem-dot.verde { background: #1e8e5a; } .sem-dot.amarillo { background: #d9a404; } .sem-dot.rojo { background: #c0392b; }
 .qr-overlay { position: fixed; inset: 0; background: oklch(0.2 0.03 260 / .45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
 .qr-sheet { background: #fff; border-radius: 16px; padding: 1.5rem; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 10px 40px oklch(0.2 0.03 260 / .3); }
 .qr-logo { height: 56px; }
