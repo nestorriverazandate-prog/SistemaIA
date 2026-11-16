@@ -1154,6 +1154,8 @@ app.post('/api/visitas', requireUser, async (req, res) => {
       .single();
     if (error) throw error;
     await logEvento(data.id, 'asignada', { por: req.user.email });
+    const { data: pacNotif } = await supabase.from('pacientes').select('nombre, apellido').eq('id', paciente_id).maybeSingle();
+    await notifyFamiliares(paciente_id, 'visita', `Nueva visita programada para ${pacNotif?.nombre || ''} ${pacNotif?.apellido || ''} el ${fecha}${hora_programada ? ' a las ' + hora_programada : ''}`);
     res.status(201).json({ visita: data });
   } catch (e) {
     console.error('POST visitas:', e);
@@ -1229,6 +1231,11 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     if (error) throw error;
     if (update.estado === 'cancelada') await logEvento(v.id, 'cancelada', { por: req.user.email });
     if (salida_manual) await logEvento(v.id, 'correccion_salida', { por: req.user.email, salida_manual: update.salida_at, evidencia: 'registrada manualmente por el directivo' });
+    // Avisar a familiares vinculados cuando cambia/cancela la visita
+    if (update.estado === 'cancelada') {
+     const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', v.paciente_id).maybeSingle();
+     await notifyFamiliares(v.paciente_id, 'visita', `La visita de ${pac?.nombre || ''} ${pac?.apellido || ''} del ${v.fecha} fue cancelada`);
+    }
     res.json({ visita: data });
   } catch (e) {
     console.error('PATCH visita:', e);
@@ -1756,6 +1763,114 @@ async function revisarSemaforos() {
     await notifyAdmins('alerta', `🚦 Semáforo ${s.color.toUpperCase()}: ${p.nombre} ${p.apellido} — ${motivoPrincipal}`, null, { paciente_id: p.id, color: s.color, alerta_id: alerta.id });
    }
   }
+}
+
+// ---------- Portal del Familiar responsable ----------
+// Vínculo familiar ↔ paciente autorizado por el directivo
+app.get('/api/mis-familiares', requireUser, async (req, res) => {
+  try {
+    if (!['familiar', 'admin'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Solo familiares' });
+    if (req.user?.perfil?.estado && req.user.perfil.estado !== 'aprobado') return res.status(403).json({ error: 'Cuenta pendiente' });
+    let q = supabase.from('vinculos_familiar').select('*').eq('activo', true);
+    if (!isAdmin(req)) q = q.eq('familiar_id', req.user.id);
+    const { data: vinculos } = await q;
+    const pacIds = [...new Set((vinculos || []).map((v) => v.paciente_id))];
+    if (!pacIds.length) return res.json({ pacientes: [] });
+    const [{ data: pacientes }, { data: paquetes }, { data: visitas }, { data: notas }, { data: evidencias }] = await Promise.all([
+      supabase.from('pacientes').select('id, nombre, apellido, cedula, telefono, direccion, tipo_servicio, descripcion, diagnostico, objetivos, paquete_id, foto_path, estado').in('id', pacIds),
+      supabase.from('paquetes').select('id, nombre, precio, servicios, duracion_min').eq('activo', true),
+      supabase.from('visitas').select('id, paciente_id, fecha, hora_programada, estado, salida').in('paciente_id', pacIds).order('fecha', { ascending: false }).limit(400),
+      supabase.from('notas_atencion').select('id, paciente_id, visita_id, actividades, evolucion, observaciones, recomendaciones, incidencias, especialidad, sesion, revisado, created_at').in('paciente_id', pacIds).order('created_at', { ascending: false }).limit(300),
+      supabase.from('evidencias').select('id, paciente_id, nota_id, descripcion, nombre_archivo, created_at').in('paciente_id', pacIds).order('created_at', { ascending: false }).limit(120)
+    ]);
+    // Firmar URLs de foto de paciente y de evidencias autorizadas (solo lectura)
+    const firmar = async (bucket, path) => {
+     try { const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600); return data?.signedUrl || null; } catch { return null; }
+    };
+    const out = [];
+    for (const p of pacientes || []) {
+     const misVisitas = (visitas || []).filter((v) => v.paciente_id === p.id);
+     const proximas = misVisitas.filter((v) => v.estado === 'programada' && String(v.fecha) >= new Date().toISOString().slice(0, 10)).slice(0, 5);
+     const realizadas = misVisitas.filter((v) => v.estado === 'finalizada' || v.salida).slice(0, 15);
+     const misNotas = (notas || []).filter((n) => n.paciente_id === p.id).slice(0, 40);
+     const misEvs = (evidencias || []).filter((e) => e.paciente_id === p.id).slice(0, 12);
+     const evs = [];
+     for (const e of misEvs) {
+      const { data: evFull } = await supabase.from('evidencias').select('storage_path').eq('id', e.id).maybeSingle();
+      const url = evFull?.storage_path ? await firmar('evidencias', evFull.storage_path) : null;
+      if (url) evs.push({ id: e.id, descripcion: e.descripcion, created_at: e.created_at, url });
+     }
+     out.push({
+      paciente: { ...p, foto_url: p.foto_path ? await firmar('pacientes', p.foto_path) : null },
+      paquete: (paquetes || []).find((k) => k.id === p.paquete_id) || null,
+      proximas_visitas: proximas,
+      historial_visitas: realizadas,
+      notas: misNotas,
+      evidencias: evs
+     });
+    }
+    res.json({ pacientes: out });
+  } catch (e) {
+   console.error('GET /api/mis-familiares:', e);
+   res.status(500).json({ error: 'Error al obtener información' });
+  }
+});
+
+// Vincular / desvincular familiar ↔ paciente (solo directivo)
+app.get('/api/vinculos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+   const { data } = await supabase.from('vinculos_familiar').select('*').order('created_at', { ascending: false }).limit(500);
+   res.json({ vinculos: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+app.post('/api/vinculos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+   const { paciente_id, familiar_id } = req.body || {};
+   if (!paciente_id || !familiar_id) return res.status(400).json({ error: 'paciente_id y familiar_id requeridos' });
+   const { data: fam } = await supabase.from('perfiles').select('rol, estado').eq('id', familiar_id).maybeSingle();
+   if (fam?.rol !== 'familiar') return res.status(400).json({ error: 'La cuenta seleccionada no es de tipo Familiar' });
+   const { data, error } = await supabase.from('vinculos_familiar')
+    .upsert({ paciente_id, familiar_id, activo: true, autorizado_por: req.user.email }, { onConflict: 'paciente_id,familiar_id' })
+    .select().single();
+   if (error) throw error;
+   res.status(201).json({ vinculo: data });
+  } catch (e) {
+   console.error('POST /api/vinculos:', e);
+   res.status(500).json({ error: 'Error al vincular' });
+  }
+});
+app.patch('/api/vinculos/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+   const { activo } = req.body || {};
+   const { data, error } = await supabase.from('vinculos_familiar')
+    .update({ activo: activo !== false })
+    .eq('id', req.params.id).select().single();
+   if (error) throw error;
+   res.json({ vinculo: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Mensaje del familiar a la administración → notificación al directivo
+app.post('/api/mensajes', requireUser, async (req, res) => {
+  try {
+   if (!['familiar', 'staff', 'cuidador'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Sin permiso' });
+   const texto = String(req.body?.texto || '').trim().slice(0, 1000);
+   if (!texto) return res.status(400).json({ error: 'Escribe un mensaje' });
+   await notifyAdmins('mensaje', `💬 Mensaje de ${req.user.perfil?.nombre || req.user.email}: ${texto}`, null, { de: req.user.email, nombre: req.user.perfil?.nombre || null, texto });
+   res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error al enviar' }); }
+});
+
+// Notifica a familiares vinculados de un paciente (visitas, cambios)
+async function notifyFamiliares(paciente_id, tipo, mensaje) {
+  try {
+   const { data: vinculos } = await supabase.from('vinculos_familiar').select('familiar_id').eq('paciente_id', paciente_id).eq('activo', true);
+   const rows = (vinculos || []).map((v) => ({ destinatario_id: v.familiar_id, tipo, mensaje, datos: { paciente_id } }));
+   if (rows.length) await supabase.from('notificaciones').insert(rows);
+  } catch (e) { console.error('notifyFamiliares:', e); }
 }
 
 app.post('/api/cron/monitor', async (req, res) => {

@@ -136,6 +136,11 @@
  let tProf = $state('');
  let tDisc = $state('');
  let evUrls = $state({});
+ // Familiares vinculados al paciente (directivo)
+ let vinculos = $state([]);
+ let familiares = $state([]);
+ let vincSel = $state('');
+ let vincMsg = $state('');
  let camVisible = $state(false);
 
  async function abrirExpediente(p) {
@@ -161,13 +166,24 @@
    expFoto = foto || '';
    // URLs firmadas de evidencias para la línea de tiempo (máx. 60)
    evUrls = {};
+   vincMsg = '';
    for (const e of (exped.evidencias || []).slice(0, 60)) {
     api.evidenciaUrl(e.id).then((r) => { evUrls = { ...evUrls, [e.id]: r.url }; }).catch(() => {});
    }
+   // Familiares: lista de cuentas tipo familiar + vínculos del paciente
+   try {
+    const [vr, fr] = await Promise.all([api.vinculos(), api.perfiles().catch(() => ({ perfiles: [] }))]);
+    vinculos = (vr.vinculos || []).filter((v) => v.paciente_id === p.id);
+    familiares = (fr.perfiles || []).filter((u) => u.rol === 'familiar');
+   } catch { vinculos = []; familiares = []; }
   } catch (e) { expErr = e.message; }
   finally { expLoading = false; }
  }
- function cerrarExpediente() { exp = null; expFoto = ''; }
+ function cerrarExpediente() { exp = null; expFoto = ''; vinculos = []; familiares = []; vincSel = ''; vincMsg = ''; }
+ function familiarNombre(id) {
+  const f = familiares.find((x) => x.id === id);
+  return f ? (f.nombre || f.email) : id;
+ }
 
  async function guardarExpediente() {
   expErr = ''; expMsg = '';
@@ -317,6 +333,25 @@
   <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
   </body></html>`);
   w.document.close();
+ }
+
+ async function vincularFamiliar() {
+  if (!vincSel || !exp) return;
+  vincMsg = '';
+  try {
+   await api.vincularFamiliar(exp.paciente.id, vincSel);
+   const vr = await api.vinculos();
+   vinculos = (vr.vinculos || []).filter((v) => v.paciente_id === exp.paciente.id);
+   vincSel = '';
+   vincMsg = 'Familiar vinculado.';
+  } catch (e) { vincMsg = e.message; }
+ }
+ async function desvincularFamiliar(v) {
+  if (!confirm('¿Quitar el acceso del familiar a este paciente?')) return;
+  try {
+   await api.desvincularFamiliar(v.id, false);
+   vinculos = vinculos.filter((x) => x.id !== v.id);
+  } catch (e) { vincMsg = e.message; }
  }
 
  async function imprimirPaquete() {
@@ -586,6 +621,31 @@
      <textarea bind:value={expForm.objetivos} rows="2"></textarea>
     </label>
     <button class="mini" onclick={guardarExpediente}>Guardar expediente</button>
+
+    <h4>Familiares responsables vinculados</h4>
+    {#if vinculos.length}
+     <div class="vinc-list">
+      {#each vinculos as v (v.id)}
+       <div class="vinc-item">
+        <span>{v.familiar_id ? familiarNombre(v.familiar_id) : 'Familiar'}</span>
+        <button class="mini danger" onclick={() => desvincularFamiliar(v)}>Quitar</button>
+       </div>
+      {/each}
+     </div>
+    {:else}<p class="muted small">Sin familiares vinculados</p>{/if}
+    <div class="vinc-add">
+     <select bind:value={vincSel}>
+      <option value="">Seleccionar cuenta de familiar…</option>
+      {#each familiares as f (f.id)}
+       {#if !vinculos.some((v) => v.familiar_id === f.id)}
+        <option value={f.id}>{f.nombre || f.email} ({f.email})</option>
+       {/if}
+      {/each}
+     </select>
+     <button class="mini" onclick={vincularFamiliar} disabled={!vincSel}>Vincular</button>
+    </div>
+    {#if vincMsg}<p class="muted small">{vincMsg}</p>{/if}
+    <p class="muted small">El familiar solo ve la información autorizada de este paciente en su portal.</p>
    </section>
 
    <section class="exp-col">
@@ -775,6 +835,10 @@ th, td { text-align: left; padding:.5rem.4rem; border-bottom: 1px solid oklch(0.
 .revisado-badge { display: inline-block; font-size: .7rem; background: #d1e7dd; color: #0f5132; border-radius: 999px; padding: .1rem .5rem; margin-top: .3rem; }
 .tl-evs { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
 .tl-ev { width: 90px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid oklch(0.86 0.02 85); cursor: pointer; }
+.vinc-list { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .5rem; }
+.vinc-item { display: flex; justify-content: space-between; align-items: center; background: oklch(0.97 0.02 85); border: 1px solid oklch(0.9 0.02 85); border-radius: 8px; padding: .35rem .6rem; font-size: .82rem; }
+.vinc-add { display: flex; gap: .4rem; }
+.vinc-add select { flex: 1; padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-size: .8rem; }
 </style>
 
 <FotoCamara bind:visible={camVisible} onCapture={setFotoExp} />

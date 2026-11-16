@@ -677,7 +677,15 @@
 
  <section class="card accesos">
  <h2>Accesos rápidos</h2>
- {#if ['staff', 'cuidador', 'familiar'].includes(perfil?.rol)}
+ {#if perfil?.rol === 'familiar'}
+ <div class="accesos-grid">
+  <a class="acceso-btn" href="/familiar">
+   <span class="acceso-icono">👨‍👩‍👧</span>
+   <strong>Portal familiar</strong>
+   <small>Seguimiento de mi familiar y reportes</small>
+  </a>
+ </div>
+ {:else if ['staff', 'cuidador'].includes(perfil?.rol)}
  <div class="accesos-grid">
   <a class="acceso-btn" href="/mapa-pacientes">
    <span class="acceso-icono">🗺️</span>

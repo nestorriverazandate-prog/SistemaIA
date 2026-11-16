@@ -216,6 +216,19 @@ create table if not exists public.alertas_semaforo (
 create index if not exists alertas_semaforo_pac_idx on public.alertas_semaforo (paciente_id);
 create index if not exists alertas_semaforo_abiertas_idx on public.alertas_semaforo (revisado) where revisado = false;
 alter table public.alertas_semaforo enable row level security;
+-- Portal del familiar responsable: vínculo autorizado por el directivo
+create table if not exists public.vinculos_familiar (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  familiar_id uuid not null references public.perfiles (id) on delete cascade,
+  activo boolean not null default true,
+  autorizado_por text,
+  created_at timestamptz not null default now(),
+  unique (paciente_id, familiar_id)
+);
+create index if not exists vinculos_familiar_fam_idx on public.vinculos_familiar (familiar_id);
+create index if not exists vinculos_familiar_pac_idx on public.vinculos_familiar (paciente_id);
+alter table public.vinculos_familiar enable row level security;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (

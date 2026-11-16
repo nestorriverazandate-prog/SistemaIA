@@ -117,6 +117,12 @@ export const api = {
   misPacientes: () => request('/api/mis-pacientes'),
   semaforo: () => request('/api/semaforo'),
   revisarAlerta: (id, acciones) => request(`/api/alertas/${id}/revisar`, { method: 'POST', body: JSON.stringify({ acciones }) }),
+  // Portal del familiar responsable
+  misFamiliares: () => request('/api/mis-familiares'),
+  vinculos: () => request('/api/vinculos'),
+  vincularFamiliar: (paciente_id, familiar_id) => request('/api/vinculos', { method: 'POST', body: JSON.stringify({ paciente_id, familiar_id }) }),
+  desvincularFamiliar: (id, activo = false) => request(`/api/vinculos/${id}`, { method: 'PATCH', body: JSON.stringify({ activo }) }),
+  enviarMensaje: (texto) => request('/api/mensajes', { method: 'POST', body: JSON.stringify({ texto }) }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };
