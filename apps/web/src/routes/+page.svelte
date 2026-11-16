@@ -676,6 +676,7 @@
 
  <section class="card accesos">
  <h2>Accesos rápidos</h2>
+ {#if ['staff', 'cuidador', 'familiar'].includes(perfil?.rol)}
  <div class="accesos-grid">
   <a class="acceso-btn" href="/mapa-pacientes">
    <span class="acceso-icono">🗺️</span>
@@ -688,6 +689,9 @@
    <small>Expedientes y datos de atención</small>
   </a>
  </div>
+ {:else}
+ <p class="muted">Tu cuenta no tiene pacientes asignados para mostrar.</p>
+ {/if}
  </section>
 
  <section class="card">
