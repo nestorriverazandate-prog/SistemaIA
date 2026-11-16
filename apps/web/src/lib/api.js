@@ -114,6 +114,7 @@ export const api = {
   // Expediente del paciente: foto, paquete contratado e historial de evolución
   fotoPaciente: (id) => request(`/api/pacientes/${id}/foto`),
   fotoPerfil: (id) => request(`/api/perfiles/${id}/foto`),
+  misPacientes: () => request('/api/mis-pacientes'),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

@@ -835,12 +835,47 @@ app.patch('/api/pacientes/:id', requireUser, async (req, res) => {
   }
 });
 
-// URL firmada de la foto del paciente (privada; admin o empleado autorizado)
+// Mis pacientes del empleado: asignados + paquete + próxima visita (solo staff)
+app.get('/api/mis-pacientes', requireUser, async (req, res) => {
+  try {
+    if (isAdmin(req)) return res.status(403).json({ error: 'Usa el directorio de pacientes' });
+    if (req.user?.perfil?.rol !== 'staff') return res.status(403).json({ error: 'Solo trabajadores' });
+    const { data: vs } = await supabase.from('visitas').select('paciente_id').eq('trabajador_id', req.user.id);
+    const ids = [...new Set((vs || []).map((v) => v.paciente_id).filter(Boolean))];
+    if (!ids.length) return res.json({ pacientes: [] });
+    const [{ data: pacs }, { data: paquetes }, { data: proxVisitas }] = await Promise.all([
+      supadeStrictPacientes(ids),
+      supabase.from('paquetes').select('id, nombre, precio, servicios, duracion_min').eq('activo', true),
+      supabase.from('visitas').select('id, paciente_id, fecha, hora_programada, estado').in('paciente_id', ids).eq('trabajador_id', req.user.id).gte('fecha', new Date().toISOString().slice(0, 10)).in('estado', ['programada', 'en_curso']).order('fecha').order('hora_programada').limit(200)
+    ]);
+    const proxPorPac = {};
+    for (const v of proxVisitas || []) if (!proxPorPac[v.paciente_id]) proxPorPac[v.paciente_id] = v;
+    const lista = (pacs || []).map((p) => ({
+      ...p,
+      paquete: (paquetes || []).find((k) => k.id === p.paquete_id) || null,
+      proxima_visita: proxPorPac[p.id] || null
+    }));
+    res.json({ pacientes: lista });
+  } catch (e) {
+    console.error('GET /api/mis-pacientes:', e);
+    res.status(500).json({ error: 'Error al obtener pacientes' });
+  }
+});
+
+async function supadeStrictPacientes(ids) {
+  const { data } = await supabase.from('pacientes').select('*').in('id', ids).limit(300);
+  return data;
+}
+
+// URL firmada de la foto del paciente (privada; admin o empleado con visita asignada)
 app.get('/api/pacientes/:id/foto', requireUser, async (req, res) => {
   try {
     const { data: p } = await supabase.from('pacientes').select('foto_path').eq('id', req.params.id).maybeSingle();
     if (!p?.foto_path) return res.status(404).json({ error: 'Sin fotografía' });
-    if (!isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    if (!isAdmin(req)) {
+      const { data: v } = await supabase.from('visitas').select('id').eq('paciente_id', req.params.id).eq('trabajador_id', req.user.id).limit(1).maybeSingle();
+      if (!v) return res.status(403).json({ error: 'Sin permiso' });
+    }
     const { data, error } = await supabase.storage.from('pacientes').createSignedUrl(p.foto_path, 3600);
     if (error) throw error;
     res.json({ url: data.signedUrl });
@@ -856,6 +891,10 @@ app.get('/api/pacientes/:id/expediente', requireUser, async (req, res) => {
     const { data: p } = await supabase.from('pacientes').select('*').eq('id', req.params.id).maybeSingle();
     if (!p) return res.status(404).json({ error: 'Paciente no encontrado' });
     if (!isAdmin(req) && req.user?.perfil?.rol !== 'staff') return res.status(403).json({ error: 'Sin permiso' });
+    if (!isAdmin(req)) {
+      const { data: v } = await supabase.from('visitas').select('id').eq('paciente_id', req.params.id).eq('trabajador_id', req.user.id).limit(1).maybeSingle();
+      if (!v) return res.status(403).json({ error: 'Paciente no asignado' });
+    }
     const [{ data: visitas }, { data: notas }, { data: evidencias }] = await Promise.all([
       supabase.from('visitas').select('*, perfiles!visitas_trabajador_id_fkey(nombre, profesion, especialidad)').eq('paciente_id', req.params.id).order('fecha', { ascending: false }).limit(300),
       supabase.from('notas_atencion').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(500),

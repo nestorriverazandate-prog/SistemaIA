@@ -1,9 +1,8 @@
 <script>
- import { onMount, tick } from 'svelte';
+ import { onMount } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
  import { env } from '$env/dynamic/public';
  import FotoCamara from '$lib/FotoCamara.svelte';
- import 'leaflet/dist/leaflet.css';
 
  let user = $state(null); // { email } si hay sesión
  let perfil = $state(null);
@@ -47,84 +46,12 @@
  }
  }
 
- // ===== Mapa de domicilios del empleado (solo sus pacientes asignados) =====
- let L;
- let mapEmp;
- let mapEmpEl;
- let marcadoresEmp = {};
- const geoCache = {}; // dirección -> {lat,lng} para no repetir geocodificación
-
- function iconoDomicilio() {
- return L.divIcon({
-  className: 'marker-div',
-  html: '<div style="background:#135666;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">⌂</div>',
-  iconSize: [26, 26], iconAnchor: [13, 13]
- });
- }
-
- function pintarMarcadoresEmp() {
- if (!mapEmp || !L) return;
- for (const k of Object.keys(marcadoresEmp)) { mapEmp.removeLayer(marcadoresEmp[k]); delete marcadoresEmp[k]; }
- const conCoords = pacientes.filter((p) => p.lat != null && p.lng != null);
- for (const p of conCoords) {
-  const m = L.marker([p.lat, p.lng], { icon: iconoDomicilio() })
-   .bindPopup(`<b>${p.nombre} ${p.apellido}</b><br/>${p.direccion || ''}<br/><small>${p.telefono || ''}</small>`);
-  m.addTo(mapEmp);
-  marcadoresEmp[`pac-${p.id}`] = m;
- }
- // Centrar en el primer domicilio si hay
- if (conCoords.length) {
-  const bounds = L.latLngBounds(conCoords.map((p) => [p.lat, p.lng]));
-  mapEmp.fitBounds(bounds.pad(0.2));
- }
-}
-
- async function geocodificar(p) {
- const q = `${p.direccion || ''}, ${p.nombre || ''} ${p.apellido || ''}`.trim();
- if (!q || geoCache[q]) return geoCache[q] || null;
- try {
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
-  const j = await r.json();
-  if (j?.[0]) geoCache[q] = { lat: parseFloat(j[0].lat), lng: parseFloat(j[0].lon) };
- } catch { /* sin geocodificación */ }
- return geoCache[q] || null;
- }
-
- async function prepararMapaEmp() {
- if (!mapEmpEl || mapEmp) return;
- try {
-  L = L || (await import('leaflet')).default;
-  await tick();
-  if (!mapEmpEl) return;
-  const conCoords = pacientes.filter((p) => p.lat != null && p.lng != null);
-  mapEmp = L.map(mapEmpEl).setView(conCoords.length ? [conCoords[0].lat, conCoords[0].lng] : [19.4326, -99.1332], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(mapEmp);
-  pintarMarcadoresEmp();
-  // Geocodificar domicilios sin coordenadas (Nominatim, solo para mostrar marcador)
-  for (const p of pacientes) {
-   if (p.lat != null || !p.direccion) continue;
-   const g = await geocodificar(p);
-   if (g) { p.lat = g.lat; p.lng = g.lng; }
-  }
-  pintarMarcadoresEmp();
- } catch { /* Leaflet no disponible */ }
- }
-
- function comoLlegar(p) {
- const dest = p.lat != null && p.lng != null
-  ? `${p.lat},${p.lng}`
-  : encodeURIComponent(`${p.direccion || ''} ${p.nombre || ''} ${p.apellido || ''}`.trim());
- window.open(`https://www.google.com/maps/dir/?api=1&destination=${dest}`, '_blank');
- }
-
  async function cargar() {
  if (!aprobado) return;
  try {
  const [p, s] = await Promise.all([api.pacientes(), api.stats().catch(() => null)]);
  pacientes = p.pacientes;
  stats = s;
- // Empleado: preparar mapa de sus domicilios asignados
- if (!esAdmin && perfil?.rol !== 'admin') prepararMapaEmp();
  if (esAdmin) {
  const r = await api.perfiles();
  perfiles = r.perfiles;
@@ -697,6 +624,8 @@
  </div>
  <div>
  <span class="badge">{perfil.email} · empleado</span>
+ <a class="ghost link" href="/mapa-pacientes">Mapa</a>
+ <a class="ghost link" href="/mis-pacientes">Mis pacientes</a>
  <a class="ghost link" href="/registrar">Registrar visita</a>
  <a class="ghost link" href="/visitas">Mis visitas</a>
  <button class="ghost" onclick={logout}>Salir</button>
@@ -745,39 +674,20 @@
  <a class="ghost link" href="/visitas" style="display:inline-block;margin-top:.6rem">Abrir Mis visitas →</a>
  </section>
 
- <section class="card">
- <h2>Ubicación y domicilio de mis pacientes</h2>
- <p class="muted small">Solo se muestran los domicilios de tus pacientes asignados. Toca un marcador para ver la dirección.</p>
- <div class="map-emp-wrap" bind:this={mapEmpEl}></div>
- <table>
- <thead><tr><th>Paciente</th><th>Dirección</th><th></th></tr></thead>
- <tbody>
- {#each pacientes as p (p.id)}
- <tr>
- <td>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
- <td>{p.direccion || '—'}{#if p.lat == null}<br/><small class="muted">Sin coordenadas — se ubica por dirección</small>{/if}</td>
- <td><button class="mini" onclick={() => comoLlegar(p)}>Cómo llegar</button></td>
- </tr>
- {:else}<tr><td colspan="3" class="muted">Sin pacientes asignados</td></tr>{/each}
- </tbody>
- </table>
- </section>
-
- <section class="card">
- <h2>Pacientes asignados ({pacientes.length})</h2>
- <table>
- <thead><tr><th>Nombre</th><th>Edad</th><th>Dirección</th><th>Teléfono</th></tr></thead>
- <tbody>
- {#each pacientes as p (p.id)}
- <tr>
- <td>{p.nombre} {p.apellido}{#if p.contacto_emergencia}<br/><small class="muted">Emergencia: {p.contacto_emergencia}{p.telefono_emergencia ? ` · ${p.telefono_emergencia}` : ''}</small>{/if}</td>
- <td>{p.cedula ? p.cedula + ' años' : '—'}</td>
- <td>{p.direccion || '—'}</td>
- <td>{p.telefono || '—'}</td>
- </tr>
- {:else}<tr><td colspan="4" class="muted">Sin pacientes asignados</td></tr>{/each}
- </tbody>
- </table>
+ <section class="card accesos">
+ <h2>Accesos rápidos</h2>
+ <div class="accesos-grid">
+  <a class="acceso-btn" href="/mapa-pacientes">
+   <span class="acceso-icono">🗺️</span>
+   <strong>Mapa de pacientes</strong>
+   <small>Domicilios asignados y cómo llegar</small>
+  </a>
+  <a class="acceso-btn" href="/mis-pacientes">
+   <span class="acceso-icono">👥</span>
+   <strong>Mis pacientes</strong>
+   <small>Expedientes y datos de atención</small>
+  </a>
+ </div>
  </section>
 
  <section class="card">
@@ -872,9 +782,12 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
  .foto-prev { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; border: 1px solid oklch(0.86 0.02 85); }
  .foto-btn { position: relative; overflow: hidden; padding: .45rem .9rem; border: 1px solid oklch(0.45 0.03 225); border-radius: 8px; cursor: pointer; font-size: .85rem; }
  .hidden { position: absolute; opacity: 0; width: 1px; height: 1px; }
- .map-emp-wrap { height: 320px; border-radius: 10px; overflow: hidden; margin: .6rem 0 .8rem; border: 1px solid oklch(0.86 0.02 85); z-index: 0; }
- .map-emp-wrap :global(.leaflet-container) { height: 100%; width: 100%; }
- :global(.marker-div) { background: transparent; border: none; }
+ .accesos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .9rem; margin-top: .6rem; }
+ .acceso-btn { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: 1.2rem 1rem; border: 2px solid oklch(0.7 0.1 78); border-radius: 14px; background: oklch(0.97 0.02 85); text-decoration: none; color: oklch(0.27 0.035 225); text-align: center; transition: transform .15s, box-shadow .15s; }
+ .acceso-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.12); border-color: oklch(0.42 0.068 218); }
+ .acceso-icono { font-size: 2rem; }
+ .acceso-btn strong { font-size: 1rem; }
+ .acceso-btn small { color: oklch(0.45 0.03 225); font-size: .78rem; }
  button.mini { padding:.25rem.6rem; font-size:.75rem; margin-right:.35rem; }
 .acciones { white-space: nowrap; }
 .btns { display: flex; gap: .5rem; }
