@@ -146,7 +146,6 @@
     <div class="rol">${t.puesto || t.profesion || 'Personal'}${t.especialidad ? ' · ' + t.especialidad : ''}</div>
     <div class="datos">
      <b>Nombre:</b> ${t.nombre || '—'}<br/>
-     <b>ID laboral:</b> ${t.id_laboral || t.id || '—'}<br/>
      <b>Profesión:</b> ${t.profesion || '—'}<br/>
      <b>Especialidad:</b> ${t.especialidad || '—'}<br/>
      <b>Puesto:</b> ${t.puesto || '—'}<br/>
