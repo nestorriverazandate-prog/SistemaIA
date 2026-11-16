@@ -1,6 +1,7 @@
 <script>
  import { onMount } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
+ import FotoCamara from '$lib/FotoCamara.svelte';
 
  let perfil = $state(null);
  let loading = $state(true);
@@ -30,6 +31,8 @@
  let dirVerHistorial = $state(false);
  let dirNueva = $state(false);
  let dirNuevo = $state({ nombre: '', email: '', password: '', rol: 'staff', profesion: '', telefono: '' });
+ let dirFoto = $state('');
+ let camVisible = $state(false);
 
  const DIR_CAMPOS = {
  personal: [
@@ -78,10 +81,85 @@
  dirForm = { ...t };
  dirContactos = (Array.isArray(t.contactos_emergencia) ? t.contactos_emergencia : []).map((c) => ({ ...CONTACTO_VACIO, ...c }));
  if (dirContactos.length && !dirContactos.some((c) => c.principal)) dirContactos[0].principal = true;
- dirHistorial = []; dirVerHistorial = false;
+ dirHistorial = []; dirVerHistorial = false; dirFoto = '';
  api.historialPerfil(t.id).then((r) => { dirHistorial = r.historial || []; }).catch(() => {});
+ api.fotoPerfil(t.id).then((r) => { dirFoto = r?.url || ''; }).catch(() => {});
  }
- function cerrarExpediente() { dirSel = null; dirForm = {}; dirContactos = []; dirHistorial = []; }
+ function cerrarExpediente() { dirSel = null; dirForm = {}; dirContactos = []; dirHistorial = []; dirFoto = ''; }
+
+ // Fotografía del trabajador
+ async function setDirFoto(dataUrl) {
+  formError = ''; formOk = '';
+  try {
+   await api.actualizarPerfil(dirSel.id, { foto: dataUrl });
+   dirFoto = dataUrl;
+   const fresh = await api.fotoPerfil(dirSel.id).then((r) => r?.url || '').catch(() => '');
+   if (fresh) dirFoto = fresh;
+   formOk = 'Fotografía actualizada';
+  } catch (e) { formError = e.message; }
+ }
+ function onDirFoto(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { formError = 'El archivo debe ser una imagen'; return; }
+  const r = new FileReader();
+  r.onload = () => setDirFoto(r.result);
+  r.readAsDataURL(file);
+ }
+ async function quitarDirFoto() {
+  if (!confirm('¿Quitar la fotografía del trabajador?')) return;
+  try { await api.actualizarPerfil(dirSel.id, { foto: null }); dirFoto = ''; }
+  catch (e) { formError = e.message; }
+ }
+
+ // Credencial imprimible del trabajador (solo directivo)
+ function imprimirCredencial() {
+  const t = dirSel;
+  if (!t) return;
+  const w = window.open('', '_blank', 'width=640,height=820');
+  const foto = dirFoto || '';
+  w.document.write(`<html><head><title>Credencial — ${t.nombre || t.email}</title><style>
+   body{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f4f1e8}
+   .cred{width:340px;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.18);border:1px solid #d8d2c0}
+   .cred-top{background:#234;height:14px}
+   .cred-body{padding:20px;text-align:center}
+   .logo{height:54px}
+   .cred-foto{width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid #c9a227;margin:10px auto;display:block;background:#eee}
+   .cred-foto.vacio{display:flex;align-items:center;justify-content:center;color:#999;font-size:2rem}
+   h1{font-size:.95rem;margin:6px 0 2px;color:#234}
+   .agencia{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:#8a6d1f;font-weight:700}
+   .nombre{font-size:1.15rem;font-weight:700;color:#222;margin:8px 0 2px}
+   .rol{font-size:.8rem;color:#555;margin-bottom:10px}
+   .datos{font-size:.72rem;color:#444;text-align:left;background:#faf8f0;border-radius:10px;padding:10px 12px;line-height:1.7}
+   .datos b{color:#234}
+   .cred-bot{background:#234;color:#f2eee2;font-size:.62rem;padding:8px;text-align:center;letter-spacing:.08em}
+   @media print{body{background:#fff}.cred{box-shadow:none}}
+  </style></head><body>
+  <div class="cred">
+   <div class="cred-top"></div>
+   <div class="cred-body">
+    <img class="logo" src="${window.location.origin}/logo.png" alt="Agencia Gerontológica Integral"/>
+    <div class="agencia">Agencia Gerontológica Integral</div>
+    ${foto ? `<img class="cred-foto" src="${foto}" alt=""/>` : '<div class="cred-foto vacio">👤</div>'}
+    <div class="nombre">${t.nombre || '—'}</div>
+    <div class="rol">${t.puesto || t.profesion || 'Personal'}${t.especialidad ? ' · ' + t.especialidad : ''}</div>
+    <div class="datos">
+     <b>Nombre:</b> ${t.nombre || '—'}<br/>
+     <b>ID laboral:</b> ${t.id_laboral || t.id || '—'}<br/>
+     <b>Profesión:</b> ${t.profesion || '—'}<br/>
+     <b>Especialidad:</b> ${t.especialidad || '—'}<br/>
+     <b>Puesto:</b> ${t.puesto || '—'}<br/>
+     <b>Estado:</b> ${estadoLaboralDe(t)}<br/>
+     <b>Vigencia:</b> ${t.fecha_contratacion ? String(t.fecha_contratacion).slice(0, 10) : '—'}
+    </div>
+   </div>
+   <div class="cred-bot">CREDENCIAL DE PERSONAL — USO INTERNO</div>
+  </div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+  </body></html>`);
+  w.document.close();
+ }
  function agregarContacto() { if (dirContactos.length < 2) dirContactos = [...dirContactos, { ...CONTACTO_VACIO, principal: dirContactos.length === 0 }]; }
  function quitarContacto(i) {
  dirContactos = dirContactos.filter((_, idx) => idx !== i);
@@ -264,10 +342,24 @@
  <div class="expediente-head">
  <h3>Expediente — {dirSel.nombre || dirSel.email}</h3>
  <div>
+ <button class="mini" onclick={imprimirCredencial}>🪪 Credencial</button>
  <button class="mini" onclick={() => window.print()}>Imprimir / PDF</button>
  <button class="mini ghost" onclick={() => { dirVerHistorial = !dirVerHistorial; }}>Historial</button>
  <button class="mini danger" onclick={() => eliminarTrabajador(dirSel)}>Eliminar</button>
  <button class="mini ghost" onclick={cerrarExpediente}>Cerrar</button>
+ </div>
+ </div>
+ <div class="foto-row">
+ {#if dirFoto}<img class="dir-foto" src={dirFoto} alt="Fotografía del trabajador" />{:else}<div class="dir-foto vacio">Sin foto</div>{/if}
+ <div>
+ <div class="foto-btns">
+ <label class="mini ghost foto-btn">{dirFoto ? 'Cambiar foto' : 'Subir foto'}
+ <input type="file" accept="image/*" class="hidden" onchange={onDirFoto} />
+ </label>
+ <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
+ {#if dirFoto}<button type="button" class="mini danger" onclick={quitarDirFoto}>Quitar</button>{/if}
+ </div>
+ <p class="muted small">Fotografía para credencial y expediente. JPG/PNG.</p>
  </div>
  </div>
  <form class="exp-form" onsubmit={(e) => { e.preventDefault(); guardarExpedienteDir(); }}>
@@ -391,6 +483,12 @@ h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
 .chip-suspendido { background: oklch(0.92 0.05 40); color: oklch(0.45 0.1 40); }
 .dir-filtros { margin: .6rem 0; }
 .dir-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; display: inline-flex; align-items: center; justify-content: center; background: oklch(0.9 0.04 80); color: oklch(0.4 0.06 250); font-weight: 700; font-size: .9rem; }
+.foto-row { display: flex; gap: .9rem; align-items: center; margin: .6rem 0 .9rem; }
+.dir-foto { width: 80px; height: 80px; border-radius: 12px; object-fit: cover; border: 1px solid oklch(0.86 0.02 85); }
+.dir-foto.vacio { display: flex; align-items: center; justify-content: center; background: oklch(0.95 0.02 85); color: oklch(0.5 0.03 85); font-size: .7rem; }
+.foto-btns { display: flex; gap: .5rem; flex-wrap: wrap; }
+.foto-btn { position: relative; overflow: hidden; }
+.hidden { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .dir-selected td { background: oklch(0.96 0.02 140); }
 .expediente { margin-top: 1rem; border: 1px solid oklch(0.88 0.03 140); border-radius: 12px; padding: 1rem; background: oklch(0.985 0.008 140); }
 .expediente-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: .5rem; }
@@ -436,3 +534,5 @@ button.mini.danger { background: oklch(0.55 0.2 27); }
 .estado-completado,.estado-aprobado { background: #d1e7dd; }
 .estado-cancelado,.estado-rechazado { background: #f8d7da; }
 </style>
+
+<FotoCamara bind:visible={camVisible} onCapture={setDirFoto} />

@@ -425,6 +425,26 @@ function sinColumnaReportada(obj, errorMsg) {
   return copia;
 }
 
+// ---------- Fotografía de perfil del trabajador (bucket privado 'perfiles') ----------
+let bucketPerfilesOk = null;
+async function asegurarBucketPerfiles() {
+  if (bucketPerfilesOk !== null) return bucketPerfilesOk;
+  const { error } = await supabase.storage.createBucket('perfiles', { public: false });
+  bucketPerfilesOk = !error || /already exists|duplicate/i.test(error.message || '');
+  return bucketPerfilesOk;
+}
+
+async function subirFotoPerfil(perfilId, dataUrl) {
+  const parsed = dataUrlABuffer(dataUrl);
+  if (!parsed || parsed.buffer.length > 8 * 1024 * 1024) return null;
+  if (!(await asegurarBucketPerfiles())) return null;
+  const ext = parsed.mime.includes('png') ? 'png' : 'jpg';
+  const path = `${perfilId}/foto.${ext}`;
+  await supabase.storage.from('perfiles').remove([`${perfilId}/foto.jpg`, `${perfilId}/foto.png`]).catch(() => {});
+  const up = await supabase.storage.from('perfiles').upload(path, parsed.buffer, { contentType: parsed.mime, upsert: true });
+  return up.error ? null : path;
+}
+
 // Registra en perfiles_historial los campos del expediente que cambiaron
 async function logHistorialPerfil(perfilId, antes, despues, actor) {
   try {
@@ -482,25 +502,63 @@ app.patch('/api/perfiles/:id', requireUser, async (req, res) => {
     } else {
       for (const f of ['telefono', 'domicilio']) if (req.body[f] != null) update[f] = String(req.body[f]).slice(0, 300);
     }
-    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    if (!Object.keys(update).length && req.body.foto === undefined) return res.status(400).json({ error: 'Nada que actualizar' });
 
-    // Reintenta quitando columnas que la BD aún no tenga
-    let payload = update;
     let data = null, error = null;
-    for (let i = 0; i < 25; i++) {
-      ({ data, error } = await supabase.from('perfiles').update(payload).eq('id', req.params.id).select().single());
-      if (!error) break;
-      if (!/does not exist|schema cache|Could not find/i.test(error.message)) break;
-      const reducido = sinColumnaReportada(payload, error.message);
-      if (JSON.stringify(reducido) === JSON.stringify(payload)) break; // columna no reconocida
-      payload = reducido;
+    if (Object.keys(update).length) {
+      // Reintenta quitando columnas que la BD aún no tenga
+      let payload = update;
+      for (let i = 0; i < 25; i++) {
+        ({ data, error } = await supabase.from('perfiles').update(payload).eq('id', req.params.id).select().single());
+        if (!error) break;
+        if (!/does not exist|schema cache|Could not find/i.test(error.message)) break;
+        const reducido = sinColumnaReportada(payload, error.message);
+        if (JSON.stringify(reducido) === JSON.stringify(payload)) break; // columna no reconocida
+        payload = reducido;
+      }
+      if (error) throw error;
+    } else {
+      const { data: actual, error: errActual } = await supabase.from('perfiles').select('*').eq('id', req.params.id).single();
+      if (errActual) throw errActual;
+      data = actual;
     }
-    if (error) throw error;
+    // Fotografía de perfil (dataURL | null para quitar)
+    if (req.body.foto !== undefined) {
+      if (req.body.foto) {
+        const path = await subirFotoPerfil(req.params.id, req.body.foto);
+        if (path) {
+          await supabase.from('perfiles').update({ avatar_path: path }).eq('id', req.params.id).then(() => {});
+          data.avatar_path = path;
+        }
+      } else {
+        const { data: actual } = await supabase.from('perfiles').select('avatar_path').eq('id', req.params.id).maybeSingle();
+        if (actual?.avatar_path) {
+          await supabase.storage.from('perfiles').remove([actual.avatar_path]).catch(() => {});
+          await supabase.from('perfiles').update({ avatar_path: null }).eq('id', req.params.id).then(() => {});
+          data.avatar_path = null;
+        }
+      }
+    }
     if (esAdminUser && antes) await logHistorialPerfil(req.params.id, antes, data, req.user.email);
     res.json({ perfil: data });
   } catch (e) {
     console.error('PATCH /api/perfiles:', e);
     res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
+// URL firmada de la foto de perfil (privada; admin o el propio usuario)
+app.get('/api/perfiles/:id/foto', requireUser, async (req, res) => {
+  try {
+    const { data: p } = await supabase.from('perfiles').select('avatar_path').eq('id', req.params.id).maybeSingle();
+    if (!p?.avatar_path) return res.status(404).json({ error: 'Sin fotografía' });
+    if (!isAdmin(req) && req.params.id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.storage.from('perfiles').createSignedUrl(p.avatar_path, 3600);
+    if (error) throw error;
+    res.json({ url: data.signedUrl });
+  } catch (e) {
+    console.error('GET foto perfil:', e);
+    res.status(500).json({ error: 'No se pudo generar el enlace' });
   }
 });
 

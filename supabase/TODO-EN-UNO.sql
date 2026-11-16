@@ -199,6 +199,8 @@ alter table public.pacientes add column if not exists diagnostico text;
 alter table public.pacientes add column if not exists antecedentes text;
 alter table public.pacientes add column if not exists objetivos text;
 alter table public.pacientes add column if not exists fecha_contratacion date;
+-- Fotografía de perfil del trabajador (credencial / expediente)
+alter table public.perfiles add column if not exists avatar_path text;
 
 -- ---------- 7. Geocercas ----------
 create table if not exists public.geocercas (

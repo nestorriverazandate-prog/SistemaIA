@@ -290,6 +290,50 @@
   abrirImpresion(html, `Paquete contratado — ${p.nombre} ${p.apellido}`);
  }
 
+ // Credencial imprimible del paciente (tarjeta con logo y datos)
+ function imprimirCredencialPaciente() {
+  if (!exp) return;
+  const p = exp.paciente;
+  const w = window.open('', '_blank', 'width=640,height=820');
+  w.document.write(`<html><head><title>Credencial — ${p.nombre} ${p.apellido}</title><style>
+   body{font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f4f1e8}
+   .cred{width:340px;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.18);border:1px solid #d8d2c0}
+   .cred-top{background:#234;height:14px}
+   .cred-body{padding:20px;text-align:center}
+   .logo{height:54px}
+   .cred-foto{width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid #c9a227;margin:10px auto;display:block;background:#eee}
+   .cred-foto.vacio{display:flex;align-items:center;justify-content:center;color:#999;font-size:2rem}
+   .agencia{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:#8a6d1f;font-weight:700}
+   .paciente-label{font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;color:#888;margin-top:4px}
+   .nombre{font-size:1.2rem;font-weight:700;color:#222;margin:8px 0 2px}
+   .datos{font-size:.72rem;color:#444;text-align:left;background:#faf8f0;border-radius:10px;padding:10px 12px;line-height:1.7}
+   .datos b{color:#234}
+   .cred-bot{background:#234;color:#f2eee2;font-size:.62rem;padding:8px;text-align:center;letter-spacing:.08em}
+   @media print{body{background:#fff}.cred{box-shadow:none}}
+  </style></head><body>
+  <div class="cred">
+   <div class="cred-top"></div>
+   <div class="cred-body">
+    <img class="logo" src="${window.location.origin}/logo.png" alt="Agencia Gerontológica Integral"/>
+    <div class="agencia">Agencia Gerontológica Integral</div>
+    <div class="paciente-label">Credencial de paciente</div>
+    ${expFoto ? `<img class="cred-foto" src="${expFoto}" alt=""/>` : '<div class="cred-foto vacio">👤</div>'}
+    <div class="nombre">${p.nombre || ''} ${p.apellido || ''}</div>
+    <div class="datos">
+     <b>Nombre:</b> ${p.nombre || ''} ${p.apellido || ''}<br/>
+     <b>Edad:</b> ${p.cedula ? p.cedula + ' años' : '—'}<br/>
+     <b>Teléfono:</b> ${p.telefono || '—'}<br/>
+     <b>Emergencia:</b> ${p.contacto_emergencia || '—'}${p.telefono_emergencia ? ' · ' + p.telefono_emergencia : ''}<br/>
+     <b>Dirección:</b> ${p.direccion || '—'}
+    </div>
+   </div>
+   <div class="cred-bot">ADULTO MAYOR BAJO ATENCIÓN — USO INTERNO</div>
+  </div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+  </body></html>`);
+  w.document.close();
+ }
+
  async function imprimirHistorial() {
   if (!exp) return;
   const p = exp.paciente;
@@ -513,6 +557,7 @@
     {/if}
 
     <div class="exp-acciones">
+     <button class="mini" onclick={imprimirCredencialPaciente}>🪪 Credencial</button>
      <button class="mini" onclick={imprimirPaquete}>Imprimir paquete contratado</button>
      <button class="mini" onclick={imprimirHistorial}>Imprimir historial de evolución</button>
     </div>
