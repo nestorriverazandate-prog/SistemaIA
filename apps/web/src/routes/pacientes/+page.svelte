@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
  import QRCode from 'qrcode';
+ import FotoCamara from '$lib/FotoCamara.svelte';
 
  let perfil = $state(null);
  let loading = $state(true);
@@ -123,6 +124,7 @@
  let fProf = $state('');
  let fDesde = $state('');
  let fHasta = $state('');
+ let camVisible = $state(false);
 
  async function abrirExpediente(p) {
   expErr = ''; expMsg = ''; expFoto = ''; fProf = ''; fDesde = ''; fHasta = '';
@@ -163,14 +165,7 @@
   } catch (e) { expErr = e.message; }
  }
 
- async function onFotoExp(e) {
-  const file = e.target.files?.[0];
-  e.target.value = '';
-  if (!file) return;
-  if (!/^image\/(jpeg|png)$/.test(file.type)) { expErr = 'Solo JPG o PNG'; return; }
-  const dataUrl = await new Promise((res, rej) => {
-   const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file);
-  });
+ async function setFotoExp(dataUrl) {
   expErr = ''; expMsg = '';
   try {
    const { paciente } = await api.actualizarPaciente(exp.paciente.id, { foto: dataUrl });
@@ -180,6 +175,15 @@
    if (fresh) expFoto = fresh;
    expMsg = 'Fotografía actualizada.';
   } catch (err) { expErr = err.message; }
+ }
+ function onFotoExp(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { expErr = 'El archivo debe ser una imagen'; return; }
+  const r = new FileReader();
+  r.onload = () => setFotoExp(r.result);
+  r.readAsDataURL(file);
  }
 
  async function quitarFotoExp() {
@@ -458,6 +462,7 @@
      <label class="mini ghost foto-btn">{expFoto ? 'Cambiar foto' : 'Subir foto'}
       <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoExp} />
      </label>
+     <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
      {#if expFoto}<button class="mini danger" onclick={quitarFotoExp}>Quitar</button>{/if}
     </div>
     <p class="muted small">JPG o PNG. Visible solo para personal autorizado.</p>
@@ -617,3 +622,5 @@ th, td { text-align: left; padding:.5rem.4rem; border-bottom: 1px solid oklch(0.
 .h-nota { margin: .4rem 0 .4rem .8rem; padding-left: .6rem; border-left: 2px solid oklch(0.7 0.1 78); }
 .h-nota p { margin: .15rem 0; font-size: .82rem; }
 </style>
+
+<FotoCamara bind:visible={camVisible} onCapture={setFotoExp} />

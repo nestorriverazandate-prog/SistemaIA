@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
  import { env } from '$env/dynamic/public';
+ import FotoCamara from '$lib/FotoCamara.svelte';
 
  let user = $state(null); // { email } si hay sesión
  let perfil = $state(null);
@@ -256,14 +257,18 @@
  let saving = $state(false);
  let fotoPreview = $state('');
  let fotoChanged = $state(false);
+ let camVisible = $state(false);
 
+ function setFotoData(dataUrl) {
+ form.foto = dataUrl; fotoPreview = dataUrl; fotoChanged = true; formError = '';
+ }
  function onFotoPaciente(e) {
  const file = e.target.files?.[0];
  e.target.value = '';
  if (!file) return;
- if (!/^image\/(jpeg|png)$/.test(file.type)) { formError = 'La foto debe ser JPG o PNG'; return; }
+ if (!/^image\//.test(file.type)) { formError = 'El archivo debe ser una imagen'; return; }
  const r = new FileReader();
- r.onload = () => { form.foto = r.result; fotoPreview = r.result; fotoChanged = true; formError = ''; };
+ r.onload = () => setFotoData(r.result);
  r.readAsDataURL(file);
  }
  function quitarFotoPaciente() { form.foto = null; fotoPreview = ''; fotoChanged = true; }
@@ -552,6 +557,7 @@
  <label class="ghost foto-btn">{fotoPreview ? 'Cambiar foto' : 'Subir foto'}
  <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoPaciente} />
  </label>
+ <button type="button" class="ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
  {#if fotoPreview}<button type="button" class="ghost" onclick={quitarFotoPaciente}>Quitar</button>{/if}
  </div>
  </div>
@@ -791,3 +797,5 @@ button.mini.danger { background: oklch(0.55 0.2 27); }
 .estado-completado,.estado-aprobado { background: #d1e7dd; }
 .estado-cancelado,.estado-rechazado { background: #f8d7da; }
 </style>
+
+<FotoCamara bind:visible={camVisible} onCapture={setFotoData} />
