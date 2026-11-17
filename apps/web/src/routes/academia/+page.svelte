@@ -53,14 +53,14 @@
       const me = await api.raw('/api/me');
       perfil = me.user?.perfil || me.perfil;
       if (!esStaff) { loading = false; return; }
-      const [cat, mi] = await Promise.all([get('/api/academia/catalogo'), get('/api/academia/mio')]);
+      const [cat, mi] = await Promise.all([api.raw('/api/academia/catalogo'), get('/api/academia/mio')]);
       catalogo = cat;
       mio = mi;
       unidadesHechas = new Set();
       if (esAdmin) {
         const [ac, st, seg, ev, evts] = await Promise.all([
-          get('/api/academia/admin/cursos'), get('/api/academia/admin/stats'),
-          get('/api/academia/admin/seguimiento'), get('/api/academia/admin/evaluaciones'), get('/api/academia/admin/eventos')
+          api.raw('/api/academia/admin/cursos'), get('/api/academia/admin/stats'),
+          api.raw('/api/academia/admin/seguimiento'), get('/api/academia/admin/evaluaciones'), get('/api/academia/admin/eventos')
         ]);
         adminCursos = ac.cursos; adminStats = st; adminSeguimiento = seg.empleados;
         adminEvaluaciones = ev.evaluaciones; adminEventos = evts;
