@@ -50,7 +50,7 @@
   async function cargar() {
     loading = true;
     try {
-      const me = await api('/api/me');
+      const me = await api.raw('/api/me');
       perfil = me.perfil;
       if (!esStaff) { loading = false; return; }
       const [cat, mi] = await Promise.all([get('/api/academia/catalogo'), get('/api/academia/mio')]);
@@ -73,7 +73,7 @@
 
   async function abrirCurso(curso) {
     detalleLoading = true; cursoDetalle = null; resultado = null; respuestas = {};
-    const d = await api('/api/academia/cursos/' + curso.id);
+    const d = await api.raw('/api/academia/cursos/' + curso.id);
     cursoDetalle = d;
     unidadesHechas = new Set(d.inscripcion?.unidades_completadas || []);
     detalleLoading = false;
@@ -82,12 +82,12 @@
   async function cerrarDetalle() { cursoDetalle = null; resultado = null; }
 
   async function inscribir(cursoId) {
-    await api('/api/academia/inscribir', { method: 'POST', body: JSON.stringify({ curso_id: cursoId }) });
+    await api.raw('/api/academia/inscribir', { method: 'POST', body: JSON.stringify({ curso_id: cursoId }) });
     await cargar(); abrirCurso({ id: cursoId });
   }
 
   async function completarUnidad(unidadId) {
-    await api('/api/academia/progreso', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, unidad_id: unidadId }) });
+    await api.raw('/api/academia/progreso', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, unidad_id: unidadId }) });
     unidadesHechas = new Set([...unidadesHechas, unidadId]);
     await cargar();
   }
@@ -100,7 +100,7 @@
   async function enviarEvaluacion() {
     enviando = true;
     try {
-      const r = await api('/api/academia/evaluar', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, respuestas }) });
+      const r = await api.raw('/api/academia/evaluar', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, respuestas }) });
       resultado = r;
       evaluacion = null;
       await cargar();
@@ -115,31 +115,31 @@
   async function guardarCurso() {
     const payload = { ...formCurso, horas: Number(formCurso.horas) || 1 };
     if (editandoCurso) payload.id = editandoCurso.id;
-    await api('/api/academia/admin/curso', { method: 'POST', body: JSON.stringify(payload) });
+    await api.raw('/api/academia/admin/curso', { method: 'POST', body: JSON.stringify(payload) });
     editandoCurso = null; formCurso = { titulo: '', area: 'gerontologia', nivel: 'basico', horas: 1, descripcion: '', obligatorio: false, estado: 'publicado', video_url: '', material_url: '', instructor: '', max_intentos: 3, calificacion_minima: 70 };
     await cargar(); msg = 'Curso guardado';
   }
   function editarCurso(c) { editandoCurso = c; formCurso = { ...c }; subTab = 'cursos'; }
-  async function eliminarCurso(c) { if (confirm('¿Eliminar "' + c.titulo + '"?')) { await api('/api/academia/admin/curso', { method: 'POST', body: JSON.stringify({ id: c.id, estado: 'archivado' }) }); await cargar(); } }
+  async function eliminarCurso(c) { if (confirm('¿Eliminar "' + c.titulo + '"?')) { await api.raw('/api/academia/admin/curso', { method: 'POST', body: JSON.stringify({ id: c.id, estado: 'archivado' }) }); await cargar(); } }
   async function agregarUnidad() {
     if (!nuevaUnidad.titulo || !cursoDetalle?.curso) return;
-    await api('/api/academia/admin/unidad', { method: 'POST', body: JSON.stringify({ ...nuevaUnidad, curso_id: cursoDetalle.curso.id }) });
+    await api.raw('/api/academia/admin/unidad', { method: 'POST', body: JSON.stringify({ ...nuevaUnidad, curso_id: cursoDetalle.curso.id }) });
     nuevaUnidad = { titulo: '', contenido: '', orden: 1 };
     await abrirCurso({ id: cursoDetalle.curso.id });
   }
   async function asignar() {
-    await api('/api/academia/admin/asignar', { method: 'POST', body: JSON.stringify(asignando) });
+    await api.raw('/api/academia/admin/asignar', { method: 'POST', body: JSON.stringify(asignando) });
     msg = 'Asignación realizada'; asignando = { curso_id: '', modo: 'todos', empleado_id: '', filtro: '' };
     await cargar();
   }
-  async function guardarProtocolo() { await api('/api/academia/admin/protocolo', { method: 'POST', body: JSON.stringify(nuevoProtocolo) }); nuevoProtocolo = { nombre: '', version: '', descripcion: '', contenido_url: '', responsable: '' }; await cargar(); msg = 'Protocolo guardado'; }
-  async function guardarEvento() { await api('/api/academia/admin/evento', { method: 'POST', body: JSON.stringify(nuevoEvento) }); nuevoEvento = { nombre: '', fecha: '', hora: '', duracion: '', instructor: '', modalidad: 'virtual', ubicacion: '', descripcion: '' }; await cargar(); msg = 'Evento guardado'; }
-  async function sembrar() { const r = await api('/api/academia/admin/sembrar', { method: 'POST', body: JSON.stringify({}) }); msg = `Catálogo cargado: ${r.cursos_creados} cursos nuevos`; await cargar(); }
+  async function guardarProtocolo() { await api.raw('/api/academia/admin/protocolo', { method: 'POST', body: JSON.stringify(nuevoProtocolo) }); nuevoProtocolo = { nombre: '', version: '', descripcion: '', contenido_url: '', responsable: '' }; await cargar(); msg = 'Protocolo guardado'; }
+  async function guardarEvento() { await api.raw('/api/academia/admin/evento', { method: 'POST', body: JSON.stringify(nuevoEvento) }); nuevoEvento = { nombre: '', fecha: '', hora: '', duracion: '', instructor: '', modalidad: 'virtual', ubicacion: '', descripcion: '' }; await cargar(); msg = 'Evento guardado'; }
+  async function sembrar() { const r = await api.raw('/api/academia/admin/sembrar', { method: 'POST', body: JSON.stringify({}) }); msg = `Catálogo cargado: ${r.cursos_creados} cursos nuevos`; await cargar(); }
   async function marcarAsistencia(ev, empId, presente) {
-    await api('/api/academia/admin/asistencia', { method: 'POST', body: JSON.stringify({ evento_id: ev.id, asistencias: [{ empleado_id: empId, presente }] }) });
+    await api.raw('/api/academia/admin/asistencia', { method: 'POST', body: JSON.stringify({ evento_id: ev.id, asistencias: [{ empleado_id: empId, presente }] }) });
   }
   async function guardarComp() {
-    await api('/api/academia/admin/competencia', { method: 'POST', body: JSON.stringify(comp) });
+    await api.raw('/api/academia/admin/competencia', { method: 'POST', body: JSON.stringify(comp) });
     comp = { empleado_id: '', competencia: '', dimension: 'conocimientos', nivel: 3, notas: '' };
     msg = 'Competencia registrada';
   }
@@ -242,7 +242,7 @@
                 {#if p.descripcion}<p class="desc">{p.descripcion}</p>{/if}
                 <div class="btns">
                   {#if p.contenido_url}<a class="btn-mini" href={p.contenido_url} target="_blank">Ver documento</a>{/if}
-                  {#if !p.leido}<button class="btn-mini btn-ok" onclick={async () => { await api('/api/academia/lectura', { method: 'POST', body: JSON.stringify({ protocolo_id: p.id }) }); await cargar(); }}>Confirmar lectura</button>{/if}
+                  {#if !p.leido}<button class="btn-mini btn-ok" onclick={async () => { await api.raw('/api/academia/lectura', { method: 'POST', body: JSON.stringify({ protocolo_id: p.id }) }); await cargar(); }}>Confirmar lectura</button>{/if}
                 </div>
               </div>
             {/each}
@@ -436,7 +436,7 @@
             <option value="">— Selecciona empleado —</option>
             {#each adminSeguimiento as e}<option value={e.id}>{e.nombre}</option>{/each}
           </select>
-          <button class="btn-mini" onclick={async () => { const id = document.getElementById('sel-emp-comp').value; if (id) { const r = await api('/api/academia/mio?empleado_id=' + id); alert(JSON.stringify(r.competencias || [], null, 2)); } }}>Ver competencias</button>
+          <button class="btn-mini" onclick={async () => { const id = document.getElementById('sel-emp-comp').value; if (id) { const r = await api.raw('/api/academia/mio?empleado_id=' + id); alert(JSON.stringify(r.competencias || [], null, 2)); } }}>Ver competencias</button>
         </div>
       {/if}
 

@@ -50,6 +50,7 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  raw: (path, options = {}) => request(path, options),
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (email, password, nombre, password2) =>

@@ -11,16 +11,16 @@
   onMount(async () => {
     folio = new URLSearchParams(location.search).get('f') || '';
     try {
-      const me = await api('/api/me');
+      const me = await api.raw('/api/me');
       perfil = me.perfil;
-      const mio = await api('/api/academia/mio');
+      const mio = await api.raw('/api/academia/mio');
       const c = (mio.constancias || []).find(x => x.folio === folio);
       if (!c) { error = 'Constancia no encontrada'; }
       else {
         const ins = (mio.inscripciones || []).find(i => i.curso_id === c.curso_id);
         const curso = c.academia_cursos || ins?.academia_cursos;
         const emp = me.empleados?.find?.(e => e.id === c.empleado_id);
-        const { data: perfilEmp } = await api('/api/perfiles').catch(() => ({ data: [] }));
+        const { data: perfilEmp } = await api.raw('/api/perfiles').catch(() => ({ data: [] }));
         const p = (perfilEmp?.perfiles || perfilEmp || []).find?.(x => x.id === c.empleado_id) || me.perfil;
         constancia = { ...c, curso, empleado: p || me.perfil };
       }
