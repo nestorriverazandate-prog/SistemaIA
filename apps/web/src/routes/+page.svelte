@@ -600,7 +600,7 @@
  {#each perfiles as u (u.id)}
  <tr>
  <td>{u.email}</td>
- <td>{u.nombre || '—'} <button class="mini ghost" title="Editar nombre" onclick={() => editarNombreUsuario(u)}>✏️</button></td>
+ <td>{u.nombre || '—'} <button class="mini ghost" title="Editar nombre" onclick={() => editarNombreUsuario(u)}>Editar</button></td>
  <td>
  <select class="rol-select" value={u.rol} disabled={u.email === ADMIN_EMAIL} onchange={(e) => cambiarPerfil(u.id, { rol: e.target.value })}>
  {#each opcionesRol(u) as r}<option value={r.valor}>{r.etiqueta}</option>{/each}
