@@ -1,5 +1,5 @@
 <script>
- import { onMount, onDestroy } from 'svelte';
+ import { onMount, onDestroy, tick } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
  import 'leaflet/dist/leaflet.css';
 
@@ -11,6 +11,7 @@
  let capas = $state({ cobertura: true, servicios: true, necesidades: true, oportunidades: true });
  let mapaLista = $state(false);
  let map = null, L = null, capaGrupos = {};
+ let mapEl = $state(null);
  let selZona = $state(null);
  let pestana = $state('mapa');
  let formZona = $state({ nombre: '', lat: '', lng: '', descripcion: '' });
@@ -111,9 +112,10 @@
    perfil = me.perfil;
    if (perfil?.rol !== 'admin') { loading = false; return; }
    await cargar();
-   const el = document.getElementById('mapa-obs');
+   await tick();
+   if (!mapEl) { loading = false; return; }
    L = (await import('leaflet')).default;
-   map = L.map(el).setView([31.6904, -106.4250], 11); // Ciudad Juárez
+   map = L.map(mapEl).setView([31.6904, -106.4250], 11); // Ciudad Juárez
    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
    dibujarMapa();
    mapaLista = true;
@@ -172,7 +174,7 @@
  {#if pestana === 'mapa'}
  <section class="card mapa-card">
   <div class="mapa-wrap">
-   <div id="mapa-obs" class="mapa"></div>
+   <div class="mapa" bind:this={mapEl}></div>
    <aside class="panel">
     <h4>Capas</h4>
     {#each [['cobertura','Cobertura de la agencia'],['servicios','Servicios disponibles'],['necesidades','Necesidades gerontológicas'],['oportunidades','Oportunidades de expansión']] as [k, t]}
