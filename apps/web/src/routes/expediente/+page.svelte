@@ -15,7 +15,7 @@
  let fDesde = $state('');
  let fHasta = $state('');
  let evUrls = $state({});
- let tab = $state(new URLSearchParams(window.location.search).get('tab') || 'evolucion'); // evolucion | valoracion | plan | auditoria
+ let tab = $state(typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('tab') || 'evolucion') : 'evolucion'); // evolucion | valoracion | plan | auditoria
 
  const DISCIPLINAS = ['Gerontología', 'Terapia Física y Rehabilitación', 'Psicología', 'Nutrición', 'Enfermería', 'Cuidadores', 'Trabajo social'];
 
