@@ -15,6 +15,10 @@
  let accionForm = $state({ acciones: '', accion_responsable: '', accion_fecha: '', accion_resultado: '' });
 
  const esAdmin = $derived(perfil?.rol === 'admin');
+ function profDe(e) {
+  const t = e.trabajador;
+  return t ? `${t.nombre || ''}${t.profesion ? ' (' + t.profesion + ')' : ''}`.trim() : 'Sin profesional asignado';
+ }
  function promDe(e) {
   const vals = Object.values(e.respuestas || {}).map(Number).filter((v) => v >= 1 && v <= 5);
   return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '—';
@@ -45,8 +49,8 @@
   catch (e) { error = e.message; }
  }
  function exportarCSV() {
-  const rows = [['Periodo','Paciente','Familiar','Paquete','Estado','Promedio','Comentario','Acciones']];
-  for (const e of encuestas) rows.push([e.periodo, `${e.pacientes?.nombre||''} ${e.pacientes?.apellido||''}`.trim(), e.perfiles?.nombre||e.perfiles?.email||'', e.pacientes?.paquetes?.nombre||'', e.estado, promDe(e), (e.comentario||'').replace(/\n/g,' '), (e.acciones||'').replace(/\n/g,' ')]);
+  const rows = [['Periodo','Paciente','Familiar','Profesional','Paquete','Estado','Promedio','Comentario','Acciones']];
+  for (const e of encuestas) rows.push([e.periodo, `${e.pacientes?.nombre||''} ${e.pacientes?.apellido||''}`.trim(), e.perfiles?.nombre||e.perfiles?.email||'', profDe(e), e.pacientes?.paquetes?.nombre||'', e.estado, promDe(e), (e.comentario||'').replace(/\n/g,' '), (e.acciones||'').replace(/\n/g,' ')]);
   const blob = new Blob(['﻿'+rows.map(r=>r.join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'encuestas-satisfaccion.csv'; a.click();
  }
@@ -106,6 +110,14 @@
     {/each}
    </div>
   {/if}
+  {#if Object.keys(stats.por_trabajador || {}).length}
+   <h4>Satisfacción por profesional</h4>
+   <div class="aspectos">
+    {#each Object.entries(stats.por_trabajador).sort((a, b) => a[1] - b[1]) as [nom, v]}
+     <div class="asp-row"><span class="asp-name">{nom}</span><div class="bar"><div class="fill" style="width:{(v / 5) * 100}%"></div></div><b>{v}/5</b></div>
+    {/each}
+   </div>
+  {/if}
   {#if (stats.tendencia || []).length > 1}
    <h4>Evolución mensual</h4>
    <table class="mini-tab"><thead><tr><th>Periodo</th><th>Promedio</th><th>Respuestas</th></tr></thead>
@@ -132,7 +144,7 @@
    <div class="enc-card">
     <div class="enc-head">
      <strong>{e.pacientes?.nombre} {e.pacientes?.apellido}</strong>
-     <span class="muted small">{e.periodo} · {e.perfiles?.nombre || e.perfiles?.email} · {e.pacientes?.paquetes?.nombre || 'Sin paquete'}</span>
+     <span class="muted small">{e.periodo} · {e.perfiles?.nombre || e.perfiles?.email} · {profDe(e)} · {e.pacientes?.paquetes?.nombre || 'Sin paquete'}</span>
      <span class="sem sem-{e.estado === 'respondida' ? 'ok' : 'warn'}">{e.estado}</span>
      {#if e.estado === 'respondida'}<b class="prom">{promDe(e)}/5</b>{/if}
      <button class="mini ghost" onclick={() => abrir(e)}>Ver respuestas</button>
@@ -150,7 +162,7 @@
 <div class="overlay" role="presentation" onclick={() => sel = null}>
  <div class="sheet" onclick={(e) => e.stopPropagation()}>
   <div class="sheet-head"><h3>{sel.pacientes?.nombre} {sel.pacientes?.apellido} — {sel.periodo}</h3><button class="mini ghost" onclick={() => sel = null}>✕</button></div>
-  <p class="muted small">Familiar: {sel.perfiles?.nombre || sel.perfiles?.email} · Paquete: {sel.pacientes?.paquetes?.nombre || '—'} · Estado: {sel.estado}{sel.respondida_at ? ' · Respondida ' + fmtFecha(sel.respondida_at) : ''}</p>
+  <p class="muted small">Familiar: {sel.perfiles?.nombre || sel.perfiles?.email} · Profesional: {profDe(sel)} · Paquete: {sel.pacientes?.paquetes?.nombre || '—'} · Estado: {sel.estado}{sel.respondida_at ? ' · Respondida ' + fmtFecha(sel.respondida_at) : ''}</p>
   {#if sel.estado === 'respondida'}
    <p class="prom-big">Promedio: <strong>{promDe(sel)}/5</strong></p>
    <table class="mini-tab">

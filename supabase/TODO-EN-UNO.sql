@@ -391,6 +391,7 @@ alter table public.evidencias enable row level security;
 create table if not exists public.encuestas_periodicas (
   id uuid primary key default gen_random_uuid(),
   paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  trabajador_id uuid references public.perfiles (id) on delete set null,
   familiar_id uuid not null references public.perfiles (id) on delete cascade,
   periodo text not null,
   estado text not null default 'pendiente' check (estado in ('pendiente','respondida')),
@@ -404,8 +405,14 @@ create table if not exists public.encuestas_periodicas (
   recordatorios integer not null default 0,
   created_at timestamptz not null default now(),
   respondida_at timestamptz,
-  unique (paciente_id, familiar_id, periodo)
+  unique (paciente_id, trabajador_id, familiar_id, periodo)
 );
+-- Si la tabla ya existía con el unique anterior, eliminarlo:
+alter table public.encuestas_periodicas drop constraint if exists encuestas_periodicas_paciente_id_familiar_id_periodo_key;
 create index if not exists enc_period_fam_idx on public.encuestas_periodicas (familiar_id);
 create index if not exists enc_period_per_idx on public.encuestas_periodicas (periodo);
 alter table public.encuestas_periodicas enable row level security;
+
+-- Encuestas por profesional (si la tabla ya existía sin trabajador_id):
+alter table public.encuestas_periodicas add column if not exists trabajador_id uuid references public.perfiles (id) on delete set null;
+alter table public.encuestas_periodicas drop constraint if exists encuestas_periodicas_paciente_id_familiar_id_periodo_key;

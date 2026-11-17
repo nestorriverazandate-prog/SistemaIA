@@ -225,7 +225,7 @@
    <div class="enc-item">
     <div class="enc-head">
      <strong>{e.pacientes?.nombre} {e.pacientes?.apellido}</strong>
-     <span class="muted small">{e.periodo}</span>
+     <span class="muted small">{e.periodo}{e.trabajador?.nombre ? ' · ' + e.trabajador.nombre + (e.trabajador.profesion ? ' (' + e.trabajador.profesion + ')' : '') : ''}</span>
      {#if e.estado === 'respondida'}<span class="estado ok">Respondida{e.respondida_at ? ' · ' + fmtFecha(e.respondida_at) : ''}</span>
      {:else}<span class="estado pend">Pendiente</span>{/if}
     </div>

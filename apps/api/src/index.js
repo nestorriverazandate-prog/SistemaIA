@@ -2330,22 +2330,41 @@ async function periodoAnterior() {
 
 async function generarEncuestasPeriodo(periodo) {
   const [desde, hasta] = [`${periodo}-01`, `${periodo}-31`];
-  const { data: visitas } = await supabase.from('visitas').select('paciente_id').gte('fecha', desde).lte('fecha', hasta).neq('estado', 'cancelada');
-  const pacIds = [...new Set((visitas || []).map((v) => v.paciente_id))];
+  const { data: visitas } = await supabase.from('visitas').select('paciente_id, trabajador_id').gte('fecha', desde).lte('fecha', hasta).neq('estado', 'cancelada');
+  // Una encuesta por cada combinación paciente + profesional que atendió ese mes
+  const combos = new Map();
+  for (const v of visitas || []) {
+    if (!v.paciente_id) continue;
+    const key = `${v.paciente_id}|${v.trabajador_id || ''}`;
+    if (!combos.has(key)) combos.set(key, { paciente_id: v.paciente_id, trabajador_id: v.trabajador_id || null });
+  }
   let creadas = 0;
-  for (const pid of pacIds) {
-    const { data: vinculos } = await supabase.from('vinculos_familiar').select('familiar_id').eq('paciente_id', pid).eq('activo', true);
-    for (const v of vinculos || []) {
-      const { error } = await supabase.from('encuestas_periodicas').upsert(
-        { paciente_id: pid, familiar_id: v.familiar_id, periodo, estado: 'pendiente' },
-        { onConflict: 'paciente_id,familiar_id,periodo', ignoreDuplicates: true }
+  for (const c of combos.values()) {
+    const { data: vinculos } = await supabase.from('vinculos_familiar').select('familiar_id').eq('paciente_id', c.paciente_id).eq('activo', true);
+    if (!vinculos?.length) continue;
+    const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', c.paciente_id).maybeSingle();
+    let prof = null;
+    if (c.trabajador_id) {
+      const { data: p } = await supabase.from('perfiles').select('nombre, profesion').eq('id', c.trabajador_id).maybeSingle();
+      prof = p;
+    }
+    const profTxt = prof ? ` atendido por ${prof.nombre}${prof.profesion ? ` (${prof.profesion})` : ''}` : '';
+    for (const v of vinculos) {
+      // Dedupe manual (trabajador_id puede ser null y unique no lo cubre)
+      let eq = supabase.from('encuestas_periodicas').select('id')
+        .eq('paciente_id', c.paciente_id).eq('familiar_id', v.familiar_id).eq('periodo', periodo);
+      eq = c.trabajador_id ? eq.eq('trabajador_id', c.trabajador_id) : eq.is('trabajador_id', null);
+      const { data: ya } = await eq.limit(1);
+      if (ya?.length) continue;
+      const { error } = await supabase.from('encuestas_periodicas').insert(
+        { paciente_id: c.paciente_id, trabajador_id: c.trabajador_id, familiar_id: v.familiar_id, periodo, estado: 'pendiente' }
       );
-      if (!error) creadas++;
-      const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', pid).maybeSingle();
+      if (error) continue;
+      creadas++;
       await supabase.from('notificaciones').insert({
         destinatario_id: v.familiar_id, tipo: 'encuesta',
-        mensaje: `Tienes una encuesta de satisfacción pendiente sobre ${pac?.nombre || ''} ${pac?.apellido || ''} (${periodo}).`,
-        datos: { encuesta_periodo: periodo, paciente_id: pid }
+        mensaje: `Tienes una encuesta de satisfacción pendiente: ${pac?.nombre || ''} ${pac?.apellido || ''}${profTxt} — ${periodo}.`,
+        datos: { encuesta_periodo: periodo, paciente_id: c.paciente_id }
       });
       broadcast({ tipo: 'notificacion', datos: { tipo: 'encuesta' } });
     }
@@ -2372,7 +2391,7 @@ app.get('/api/encuestas-periodo', requireUser, async (req, res) => {
     let q;
     if (isAdmin(req)) {
       q = supabase.from('encuestas_periodicas')
-        .select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre)), perfiles!encuestas_periodicas_familiar_id_fkey(nombre, email)')
+        .select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre)), perfiles!encuestas_periodicas_familiar_id_fkey(nombre, email), trabajador:perfiles!encuestas_periodicas_trabajador_id_fkey(nombre, profesion)')
         .order('periodo', { ascending: false }).order('created_at', { ascending: false }).limit(500);
       if (req.query.periodo) q = q.eq('periodo', req.query.periodo);
       if (req.query.estado) q = q.eq('estado', req.query.estado);
@@ -2380,7 +2399,7 @@ app.get('/api/encuestas-periodo', requireUser, async (req, res) => {
     } else {
       if (req.user?.perfil?.rol !== 'familiar') return res.status(403).json({ error: 'Solo familiares y directivo' });
       q = supabase.from('encuestas_periodicas')
-        .select('*, pacientes(nombre, apellido)')
+        .select('*, pacientes(nombre, apellido), trabajador:perfiles!encuestas_periodicas_trabajador_id_fkey(nombre, profesion)')
         .eq('familiar_id', req.user.id).order('periodo', { ascending: false }).limit(100);
     }
     const { data, error } = await q;
@@ -2410,8 +2429,10 @@ app.post('/api/encuestas-periodo/:id/responder', requireUser, async (req, res) =
     if (error) throw error;
     const { data: pac } = await supabase.from('pacientes').select('nombre, apellido').eq('id', enc.paciente_id).maybeSingle();
     const { data: fam } = await supabase.from('perfiles').select('nombre').eq('id', enc.familiar_id).maybeSingle();
+    const { data: prof } = enc.trabajador_id ? await supabase.from('perfiles').select('nombre').eq('id', enc.trabajador_id).maybeSingle() : { data: null };
     const quien = fam?.nombre || 'Un familiar';
-    await notifyAdmins('encuesta', `Encuesta respondida: ${quien} evaluó a ${pac?.nombre || ''} ${pac?.apellido || ''} (${enc.periodo}) — promedio ${promedio}/5${Number(promedio) < 3 ? ' (calificación baja)' : ''}`, null, { encuesta_id: enc.id, promedio });
+    const profTxt = prof?.nombre ? ` — profesional: ${prof.nombre}` : '';
+    await notifyAdmins('encuesta', `Encuesta respondida: ${quien} evaluó a ${pac?.nombre || ''} ${pac?.apellido || ''} (${enc.periodo})${profTxt} — promedio ${promedio}/5${Number(promedio) < 3 ? ' (calificación baja)' : ''}`, null, { encuesta_id: enc.id, promedio });
     res.json({ encuesta: data, promedio });
   } catch (e) { console.error('responder encuesta:', e); res.status(500).json({ error: 'Error al responder' }); }
 });
@@ -2443,7 +2464,8 @@ app.patch('/api/encuestas-periodo/:id/accion', requireUser, async (req, res) => 
 app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const { data: encs } = await supabase.from('encuestas_periodicas').select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre))').limit(1000);
+    const { data: encs } = await supabase.from('encuestas_periodicas').select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre)), trabajador:perfiles!encuestas_periodicas_trabajador_id_fkey(nombre, profesion)')
+      .limit(1000);
     const lista = encs || [];
     const respondidas = lista.filter((e) => e.estado === 'respondida');
     const promDe = (e) => { const vals = Object.values(e.respuestas || {}).map(Number).filter((v) => v >= 1 && v <= 5); return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
@@ -2456,6 +2478,13 @@ app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => 
     const porPaciente = {};
     for (const e of respondidas) { const nom = `${e.pacientes?.nombre || ''} ${e.pacientes?.apellido || ''}`.trim() || 'Paciente'; const pr = promDe(e); if (pr != null) (porPaciente[nom] = porPaciente[nom] || []).push(pr); }
     const pacienteProm = Object.fromEntries(Object.entries(porPaciente).map(([k, vs]) => [k, +(vs.reduce((a, b) => a + b, 0) / vs.length).toFixed(2)]));
+    const porTrabajador = {};
+    for (const e of respondidas) {
+      const nom = e.trabajador ? `${e.trabajador.nombre || ''}${e.trabajador.profesion ? ' (' + e.trabajador.profesion + ')' : ''}`.trim() : 'Sin profesional asignado';
+      const pr = promDe(e); if (pr == null) continue;
+      (porTrabajador[nom] = porTrabajador[nom] || []).push(pr);
+    }
+    const trabajadorProm = Object.fromEntries(Object.entries(porTrabajador).map(([k, vs]) => [k, +(vs.reduce((a, b) => a + b, 0) / vs.length).toFixed(2)]));
     const porPeriodo = {};
     for (const e of respondidas) { const pr = promDe(e); if (pr != null) (porPeriodo[e.periodo] = porPeriodo[e.periodo] || []).push(pr); }
     const tendencia = Object.entries(porPeriodo).sort().map(([p, vs]) => ({ periodo: p, promedio: +(vs.reduce((a, b) => a + b, 0) / vs.length).toFixed(2), n: vs.length }));
@@ -2465,7 +2494,7 @@ app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => 
       pendientes: lista.length - respondidas.length,
       participacion: lista.length ? Math.round((respondidas.length / lista.length) * 100) : 0,
       promedio_general: promedio != null ? +promedio.toFixed(2) : null,
-      por_aspecto: aspectoProm, por_paciente: pacienteProm, tendencia, bajas
+      por_aspecto: aspectoProm, por_paciente: pacienteProm, por_trabajador: trabajadorProm, tendencia, bajas
     });
   } catch (e) { res.status(500).json({ error: 'Error en estadísticas' }); }
 });
