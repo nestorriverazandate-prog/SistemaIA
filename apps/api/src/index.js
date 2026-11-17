@@ -2500,6 +2500,475 @@ app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => 
 });
 
 
+
+// ---------- Academia de Profesionales Gerontológicos ----------
+const AREAS_ACADEMIA = ['gerontologia','cuidados','enfermedades','salud_mental','fisioterapia','etica','emergencias'];
+const esEmpleadoAcademia = (req) => ['staff','cuidador','familiar'].includes(req.user?.perfil?.rol) || isAdmin(req);
+
+async function inscripcionDe(cursoId, empleadoId) {
+  const { data } = await supabase.from('academia_inscripciones').select('*').eq('curso_id', cursoId).eq('empleado_id', empleadoId).maybeSingle();
+  return data;
+}
+
+async function notificarAcademia(empleadoId, mensaje, datos) {
+  await supabase.from('notificaciones').insert({ destinatario_id: empleadoId, tipo: 'academia', mensaje, datos: datos || {} }).catch(() => {});
+}
+
+// Catálogo público para empleados (cursos publicados)
+app.get('/api/academia/catalogo', requireUser, async (req, res) => {
+  try {
+    const { data: cursos } = await supabase.from('academia_cursos').select('*').eq('estado', 'publicado').order('area').order('titulo');
+    const ids = (cursos || []).map((c) => c.id);
+    const { data: ins } = ids.length
+      ? await supabase.from('academia_inscripciones').select('curso_id, estado, progreso, calificacion').eq('empleado_id', req.user.id).in('curso_id', ids)
+      : { data: [] };
+    const mapa = Object.fromEntries((ins || []).map((i) => [i.curso_id, i]));
+    res.json({ cursos: (cursos || []).map((c) => ({ ...c, mi_estado: mapa[c.id]?.estado || null, mi_progreso: mapa[c.id]?.progreso || 0, mi_calificacion: mapa[c.id]?.calificacion ?? null })), areas: AREAS_ACADEMIA });
+  } catch (e) { res.status(500).json({ error: 'Error del catálogo' }); }
+});
+
+// Detalle de curso: unidades + preguntas SIN respuesta correcta (para el empleado)
+app.get('/api/academia/cursos/:id', requireUser, async (req, res) => {
+  try {
+    const { data: curso } = await supabase.from('academia_cursos').select('*').eq('id', req.params.id).maybeSingle();
+    if (!curso) return res.status(404).json({ error: 'Curso no encontrado' });
+    const [{ data: unidades }, { data: preguntas }, ins] = await Promise.all([
+      supabase.from('academia_unidades').select('*').eq('curso_id', curso.id).order('orden'),
+      supabase.from('academia_preguntas').select('id, curso_id, unidad_id, tipo, pregunta, opciones, puntos').eq('curso_id', curso.id),
+      inscripcionDe(curso.id, req.user.id)
+    ]);
+    res.json({ curso, unidades: unidades || [], preguntas: preguntas || [], inscripcion: ins });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Auto-inscripción del empleado a un curso publicado
+app.post('/api/academia/inscribir', requireUser, async (req, res) => {
+  try {
+    const { curso_id } = req.body || {};
+    const { data: curso } = await supabase.from('academia_cursos').select('id, estado, titulo').eq('id', curso_id).maybeSingle();
+    if (!curso || curso.estado !== 'publicado') return res.status(400).json({ error: 'Curso no disponible' });
+    const { data: ins, error } = await supabase.from('academia_inscripciones').upsert(
+      { curso_id, empleado_id: req.user.id, estado: 'en_proceso', iniciado_at: new Date().toISOString(), asignacion: 'voluntario' },
+      { onConflict: 'curso_id,empleado_id', ignoreDuplicates: true }
+    ).select().single();
+    if (error) throw error;
+    const final = ins || (await inscripcionDe(curso_id, req.user.id));
+    res.json({ inscripcion: final });
+  } catch (e) { res.status(500).json({ error: 'Error al inscribir' }); }
+});
+
+// Marcar unidad completada → actualiza progreso
+app.post('/api/academia/progreso', requireUser, async (req, res) => {
+  try {
+    const { curso_id, unidad_id } = req.body || {};
+    const ins = await inscripcionDe(curso_id, req.user.id);
+    if (!ins) return res.status(404).json({ error: 'No estás inscrito' });
+    const hechas = new Set(ins.unidades_completadas || []);
+    hechas.add(unidad_id);
+    const { data: total } = await supabase.from('academia_unidades').select('id', { count: 'exact', head: true }).eq('curso_id', curso_id);
+    const { count } = await supabase.from('academia_unidades').select('id', { count: 'exact', head: true }).eq('curso_id', curso_id);
+    const prog = count ? Math.min(100, Math.round((hechas.size / count) * 100)) : 100;
+    await supabase.from('academia_inscripciones').update({ unidades_completadas: [...hechas], progreso: prog, estado: prog >= 100 ? 'en_proceso' : ins.estado }).eq('id', ins.id);
+    res.json({ progreso: prog });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Evaluación: califica automáticamente, aleatoriza preguntas, respeta intentos
+app.post('/api/academia/evaluar', requireUser, async (req, res) => {
+  try {
+    const { curso_id, respuestas } = req.body || {};
+    const ins = await inscripcionDe(curso_id, req.user.id);
+    if (!ins) return res.status(404).json({ error: 'No estás inscrito en este curso' });
+    const { data: curso } = await supabase.from('academia_cursos').select('*').eq('id', curso_id).single();
+    if (ins.intentos >= (curso.max_intentos || 3)) return res.status(400).json({ error: 'Sin intentos restantes' });
+    const { data: preguntas } = await supabase.from('academia_preguntas').select('*').eq('curso_id', curso_id);
+    const lista = preguntas || [];
+    const cerradas = lista.filter((p) => p.tipo !== 'abierta');
+    const abiertas = lista.filter((p) => p.tipo === 'abierta');
+    let puntosOk = 0, puntosTot = 0;
+    const evalRespuestas = {}, pendientes = [];
+    for (const p of cerradas) {
+      puntosTot += Number(p.puntos) || 1;
+      const r = String(respuestas?.[p.id] ?? '');
+      evalRespuestas[p.id] = r;
+      if (r === String(p.respuesta_correcta)) puntosOk += Number(p.puntos) || 1;
+    }
+    for (const p of abiertas) {
+      const r = String(respuestas?.[p.id] ?? '').trim();
+      evalRespuestas[p.id] = r;
+      if (r) pendientes.push({ pregunta_id: p.id, pregunta: p.pregunta, respuesta: r });
+    }
+    const porcentaje = puntosTot ? Math.round((puntosOk / puntosTot) * 1000) / 10 : 0;
+    const calificacion = puntosTot ? Math.round((puntosOk / puntosTot) * curso.calificacion_minima * 100) / 100 : 0;
+    const nota100 = puntosTot ? Math.round((puntosOk / puntosTot) * 1000) / 10 : 0;
+    const aprobado = nota100 >= Number(curso.calificacion_minima);
+    const nuevoIntentos = ins.intentos + 1;
+    const updateIns = {
+      intentos: nuevoIntentos,
+      calificacion: aprobado ? nota100 : (ins.calificacion ?? nota100),
+      progreso: aprobado ? 100 : ins.progreso,
+      estado: aprobado ? 'aprobado' : (nuevoIntentos >= curso.max_intentos ? 'reprobado' : ins.estado)
+    };
+    if (aprobado && !ins.completado_at) { updateIns.completado_at = new Date().toISOString(); }
+    await supabase.from('academia_inscripciones').update(updateIns).eq('id', ins.id);
+    await supabase.from('academia_evaluaciones').insert({
+      inscripcion_id: ins.id, curso_id, empleado_id: req.user.id,
+      calificacion: nota100, porcentaje: nota100, respuestas: evalRespuestas,
+      pendientes_revision: pendientes, intentos: nuevoIntentos
+    });
+    // Constancia automática al aprobar
+    if (aprobado && !ins.completado_at) {
+      const folio = `AGE-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900000) + 100000)}`;
+      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: nota100, horas: curso.horas }).catch(() => {});
+      await notificarAcademia(req.user.id, `¡Felicidades! Aprobaste el curso "${curso.titulo}" con ${nota100}%. Tu constancia está disponible en Mi Formación.`, { curso_id });
+      broadcast({ tipo: 'academia', datos: { curso_id, empleado_id: req.user.id } });
+    }
+    res.json({ calificacion: nota100, aprobado, intentos: nuevoIntentos, max_intentos: curso.max_intentos, pendientes_revision: pendientes.length, mostrar_resultados: curso.mostrar_resultados });
+  } catch (e) { console.error('evaluar:', e); res.status(500).json({ error: 'Error al evaluar' }); }
+});
+
+// Mi formación: resumen académico del empleado
+app.get('/api/academia/mio', requireUser, async (req, res) => {
+  try {
+    const empId = isAdmin(req) && req.query.empleado_id ? req.query.empleado_id : req.user.id;
+    const [ins, constancias, evals, protocolos, lecturas, eventos, competencias] = await Promise.all([
+      supabase.from('academia_inscripciones').select('*, academia_cursos(titulo, area, horas, nivel, obligatorio, estado, instructor, video_url, material_url)').eq('empleado_id', empId).order('created_at', { ascending: false }),
+      supabase.from('academia_constancias').select('*, academia_cursos(titulo, area, horas)').eq('empleado_id', empId),
+      supabase.from('academia_evaluaciones').select('*, academia_cursos(titulo)').eq('empleado_id', empId).order('created_at', { ascending: false }).limit(50),
+      supabase.from('academia_protocolos').select('*').eq('estado', 'vigente'),
+      supabase.from('academia_lecturas').select('protocolo_id').eq('empleado_id', empId),
+      supabase.from('academia_eventos').select('*').gte('fecha', new Date().toISOString().slice(0, 10)).order('fecha').limit(50),
+      supabase.from('academia_competencias').select('*').eq('empleado_id', empId)
+    ]);
+    const leidas = new Set((lecturas.data || []).map((l) => l.protocolo_id));
+    const lista = ins.data || [];
+    const horas = lista.filter((i) => i.estado === 'aprobado').reduce((a, i) => a + Number(i.academia_cursos?.horas || 0), 0);
+    const obligatorios = lista.filter((i) => i.academia_cursos?.obligatorio);
+    const obligPendientes = obligatorios.filter((i) => i.estado !== 'aprobado').length;
+    res.json({
+      inscripciones: lista,
+      constancias: constancias.data || [],
+      evaluaciones: evals.data || [],
+      protocolos: (protocolos.data || []).map((p) => ({ ...p, leido: leidas.has(p.id) })),
+      eventos: eventos.data || [],
+      competencias: competencias.data || [],
+      resumen: {
+        horas: Math.round(horas * 10) / 10,
+        aprobados: lista.filter((i) => i.estado === 'aprobado').length,
+        pendientes: lista.filter((i) => ['asignado', 'en_proceso'].includes(i.estado)).length,
+        reprobados: lista.filter((i) => i.estado === 'reprobado').length,
+        obligatorios_pendientes: obligPendientes,
+        constancias: (constancias.data || []).length
+      }
+    });
+  } catch (e) { console.error('academia/mio:', e); res.status(500).json({ error: 'Error' }); }
+});
+
+// Confirmar lectura de protocolo
+app.post('/api/academia/lectura', requireUser, async (req, res) => {
+  try {
+    const { protocolo_id } = req.body || {};
+    const { error } = await supabase.from('academia_lecturas').upsert({ protocolo_id, empleado_id: req.user.id }, { onConflict: 'protocolo_id,empleado_id', ignoreDuplicates: true });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ---------- Administración de la Academia (solo directivo) ----------
+app.get('/api/academia/admin/cursos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: cursos } = await supabase.from('academia_cursos').select('*').order('created_at', { ascending: false });
+    const { data: stats } = await supabase.from('academia_inscripciones').select('curso_id, estado, calificacion, progreso').limit(5000);
+    const porCurso = {};
+    for (const i of stats || []) {
+      porCurso[i.curso_id] = porCurso[i.curso_id] || { inscritos: 0, aprobados: 0, pendientes: 0, califs: [] };
+      porCurso[i.curso_id].inscritos++;
+      if (i.estado === 'aprobado') porCurso[i.curso_id].aprobados++;
+      if (['asignado', 'en_proceso'].includes(i.estado)) porCurso[i.curso_id].pendientes++;
+      if (i.calificacion != null) porCurso[i.curso_id].califs.push(Number(i.calificacion));
+    }
+    res.json({ cursos: (cursos || []).map((c) => ({ ...c, stats: porCurso[c.id] || { inscritos: 0, aprobados: 0, pendientes: 0, califs: [] } })) });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/academia/admin/curso', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const b = req.body || {};
+    const payload = {
+      titulo: String(b.titulo || '').trim(), area: b.area, descripcion: b.descripcion || null,
+      nivel: ['basico', 'intermedio', 'avanzado'].includes(b.nivel) ? b.nivel : 'basico',
+      horas: Number(b.horas) || 1, obligatorio: !!b.obligatorio,
+      estado: ['borrador', 'publicado', 'archivado'].includes(b.estado) ? b.estado : 'borrador',
+      video_url: b.video_url || null, video_titulo: b.video_titulo || null,
+      material_url: b.material_url || null, material_nombre: b.material_nombre || null,
+      instructor: b.instructor || null, fecha_inicio: b.fecha_inicio || null, fecha_fin: b.fecha_fin || null,
+      max_intentos: Math.min(10, Math.max(1, Number(b.max_intentos) || 3)),
+      calificacion_minima: Math.min(100, Math.max(1, Number(b.calificacion_minima) || 70)),
+      mostrar_resultados: b.mostrar_resultados !== false
+    };
+    if (!payload.titulo || !AREAS_ACADEMIA.includes(payload.area)) return res.status(400).json({ error: 'Título y área válidos requeridos' });
+    const q = b.id ? supabase.from('academia_cursos').update(payload).eq('id', b.id) : supabase.from('academia_cursos').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ curso: data });
+  } catch (e) { res.status(500).json({ error: e.message || 'Error' }); }
+});
+
+app.post('/api/academia/admin/unidad', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, curso_id, titulo, contenido, orden } = req.body || {};
+    if (!titulo || !curso_id) return res.status(400).json({ error: 'Datos incompletos' });
+    const payload = { curso_id, titulo, contenido: contenido || null, orden: Number(orden) || 1 };
+    const q = id ? supabase.from('academia_unidades').update(payload).eq('id', id) : supabase.from('academia_unidades').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ unidad: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/academia/admin/pregunta', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, curso_id, unidad_id, tipo, pregunta, opciones, respuesta_correcta, puntos } = req.body || {};
+    if (!pregunta || !curso_id) return res.status(400).json({ error: 'Datos incompletos' });
+    const payload = { curso_id, unidad_id: unidad_id || null, tipo: ['opcion_multiple', 'verdadero_falso', 'abierta'].includes(tipo) ? tipo : 'opcion_multiple', pregunta, opciones: opciones || null, respuesta_correcta: respuesta_correcta || null, puntos: Number(puntos) || 1 };
+    const q = id ? supabase.from('academia_preguntas').update(payload).eq('id', id) : supabase.from('academia_preguntas').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ pregunta: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Asignar curso: todos los empleados activos, uno específico, o por área/puesto
+app.post('/api/academia/admin/asignar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { curso_id, modo, empleado_id, filtro } = req.body || {};
+    const { data: curso } = await supabase.from('academia_cursos').select('id, titulo, area').eq('id', curso_id).maybeSingle();
+    if (!curso) return res.status(404).json({ error: 'Curso no encontrado' });
+    let empleados = [];
+    if (modo === 'todos') {
+      const { data } = await supabase.from('perfiles').select('id').in('rol', ['staff', 'cuidador']).eq('estado', 'aprobado');
+      empleados = data || [];
+    } else if (modo === 'empleado' && empleado_id) {
+      empleados = [{ id: empleado_id }];
+    } else if (modo === 'area' || modo === 'puesto') {
+      const campo = modo === 'area' ? 'areas' : 'puesto';
+      const { data } = await supabase.from('perfiles').select('id, ' + campo).in('rol', ['staff', 'cuidador']).eq('estado', 'aprobado');
+      empleados = (data || []).filter((p) => String(p[campo] || '').toLowerCase().includes(String(filtro || '').toLowerCase()));
+    }
+    let creadas = 0;
+    for (const e of empleados) {
+      const { data: ins } = await supabase.from('academia_inscripciones').upsert(
+        { curso_id, empleado_id: e.id, estado: 'asignado', asignado_por: req.user.id, asignacion: modo },
+        { onConflict: 'curso_id,empleado_id', ignoreDuplicates: true }
+      ).select();
+      if (ins?.length) {
+        creadas++;
+        await notificarAcademia(e.id, `Tienes un curso asignado: "${curso.titulo}". Revísalo en Mi Formación.`, { curso_id });
+      }
+    }
+    broadcast({ tipo: 'academia', datos: { curso_id } });
+    res.json({ ok: true, asignados: creadas });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Seguimiento académico: directorio de empleados con indicadores
+app.get('/api/academia/admin/seguimiento', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: empleados } = await supabase.from('perfiles').select('id, nombre, email, profesion, puesto, rol, estado, foto_path').in('rol', ['staff', 'cuidador']).eq('estado', 'aprobado');
+    const { data: ins } = await supabase.from('academia_inscripciones').select('empleado_id, curso_id, estado, progreso, calificacion, academia_cursos(titulo, horas, obligatorio)').limit(10000);
+    const porEmp = {};
+    for (const i of ins || []) {
+      porEmp[i.empleado_id] = porEmp[i.empleado_id] || { total: 0, aprobados: 0, pendientes: 0, horas: 0, califs: [], obligPend: 0, ultima: null };
+      const p = porEmp[i.empleado_id];
+      p.total++;
+      if (i.estado === 'aprobado') { p.aprobados++; p.horas += Number(i.academia_cursos?.horas || 0); }
+      if (['asignado', 'en_proceso'].includes(i.estado)) { p.pendientes++; if (i.academia_cursos?.obligatorio) p.obligPend++; }
+      if (i.calificacion != null) p.califs.push(Number(i.calificacion));
+    }
+    const lista = (empleados || []).map((e) => {
+      const p = porEmp[e.id] || { total: 0, aprobados: 0, pendientes: 0, horas: 0, califs: [], obligPend: 0 };
+      const pct = p.total ? Math.round((p.aprobados / p.total) * 100) : 0;
+      return { ...e, cursos_total: p.total, cursos_aprobados: p.aprobados, cursos_pendientes: p.pendientes, horas: Math.round(p.horas * 10) / 10, promedio: p.califs.length ? Math.round((p.califs.reduce((a, b) => a + b, 0) / p.califs.length) * 10) / 10 : null, pct, obligatorios_pendientes: p.obligPend };
+    });
+    res.json({ empleados: lista });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Detalle académico de un empleado (para el directivo)
+app.get('/api/academia/admin/empleado/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const r = await fetch(`http://localhost:${PORT}/api/academia/mio?empleado_id=${req.params.id}`, { headers: { authorization: req.headers.authorization } });
+    res.status(r.status).json(await r.json());
+  } catch (e) {
+    // fallback directo
+    const { data } = await supabase.from('academia_inscripciones').select('*, academia_cursos(titulo, area, horas, nivel, obligatorio, instructor)').eq('empleado_id', req.params.id).order('created_at', { ascending: false });
+    res.json({ inscripciones: data || [], resumen: {} });
+  }
+});
+
+// Evaluaciones pendientes de revisión (preguntas abiertas)
+app.get('/api/academia/admin/evaluaciones', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data } = await supabase.from('academia_evaluaciones').select('*, perfiles!academia_evaluaciones_empleado_id_fkey(nombre), academia_cursos(titulo)').order('created_at', { ascending: false }).limit(200);
+    const pendientes = (data || []).filter((e) => (e.pendientes_revision || []).length);
+    res.json({ evaluaciones: data || [], pendientes_count: pendientes.length });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Estadísticas de la academia
+app.get('/api/academia/admin/stats', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const [cursos, ins, constancias, evals] = await Promise.all([
+      supabase.from('academia_cursos').select('id, titulo, area, horas, estado'),
+      supabase.from('academia_inscripciones').select('curso_id, empleado_id, estado, calificacion, progreso').limit(10000),
+      supabase.from('academia_constancias').select('id'),
+      supabase.from('academia_evaluaciones').select('calificacion, empleado_id, curso_id')
+    ]);
+    const insL = ins.data || [];
+    const porCurso = {};
+    for (const i of insL) {
+      porCurso[i.curso_id] = porCurso[i.curso_id] || { inscritos: 0, aprobados: 0, califs: [] };
+      porCurso[i.curso_id].inscritos++;
+      if (i.estado === 'aprobado') porCurso[i.curso_id].aprobados++;
+      if (i.calificacion != null) porCurso[i.curso_id].califs.push(Number(i.calificacion));
+    }
+    const horasTotales = insL.filter((i) => i.estado === 'aprobado').reduce((a, i) => {
+      const c = (cursos.data || []).find((x) => x.id === i.curso_id);
+      return a + Number(c?.horas || 0);
+    }, 0);
+    const califs = (evals.data || []).map((e) => Number(e.calificacion)).filter((v) => v != null && !isNaN(v));
+    res.json({
+      cursos_total: (cursos.data || []).length,
+      cursos_publicados: (cursos.data || []).filter((c) => c.estado === 'publicado').length,
+      inscripciones: insL.length,
+      aprobados: insL.filter((i) => i.estado === 'aprobado').length,
+      pendientes: insL.filter((i) => ['asignado', 'en_proceso'].includes(i.estado)).length,
+      constancias: (constancias.data || []).length,
+      horas_totales: Math.round(horasTotales * 10) / 10,
+      promedio_general: califs.length ? Math.round((califs.reduce((a, b) => a + b, 0) / califs.length) * 10) / 10 : null,
+      por_curso: Object.entries(porCurso).map(([curso_id, s]) => ({
+        curso_id, titulo: (cursos.data || []).find((c) => c.id === curso_id)?.titulo || curso_id,
+        inscritos: s.inscritos, aprobados: s.aprobados,
+        promedio: s.califs.length ? Math.round((s.califs.reduce((a, b) => a + b, 0) / s.califs.length) * 10) / 10 : null
+      })).sort((a, b) => b.inscritos - a.inscritos)
+    });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Protocolo CRUD + competencias + eventos (admin)
+app.post('/api/academia/admin/protocolo', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, nombre, version, descripcion, contenido_url, estado, responsable } = req.body || {};
+    if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    const payload = { nombre, version: version || null, descripcion: descripcion || null, contenido_url: contenido_url || null, estado: estado || 'vigente', responsable: responsable || null, updated_at: new Date().toISOString() };
+    const q = id ? supabase.from('academia_protocolos').update(payload).eq('id', id) : supabase.from('academia_protocolos').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    // Notificar nueva versión a todos los empleados
+    if (!id || payload.estado === 'vigente') {
+      const { data: emps } = await supabase.from('perfiles').select('id').in('rol', ['staff', 'cuidador']).eq('estado', 'aprobado');
+      for (const e of emps || []) await notificarAcademia(e.id, `Nuevo/actualizado protocolo: "${nombre}" v${version || '1.0'}. Confirma su lectura en Mi Formación.`, { protocolo_id: data.id });
+    }
+    res.json({ protocolo: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/academia/admin/competencia', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { empleado_id, competencia, dimension, nivel, notas } = req.body || {};
+    if (!empleado_id || !competencia || !nivel) return res.status(400).json({ error: 'Datos incompletos' });
+    const { data, error } = await supabase.from('academia_competencias').insert({
+      empleado_id, competencia, dimension: ['conocimientos', 'habilidades', 'actitudes', 'etica'].includes(dimension) ? dimension : 'conocimientos',
+      nivel: Math.min(4, Math.max(1, Number(nivel))), evaluador: req.user.perfil?.nombre || req.user.email, notas: notas || null
+    }).select().single();
+    if (error) throw error;
+    res.json({ competencia: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/academia/admin/evento', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, nombre, fecha, hora, duracion, instructor, modalidad, ubicacion, descripcion } = req.body || {};
+    if (!nombre || !fecha) return res.status(400).json({ error: 'Nombre y fecha requeridos' });
+    const payload = { nombre, fecha, hora: hora || null, duracion: duracion || null, instructor: instructor || null, modalidad: modalidad || 'virtual', ubicacion: ubicacion || null, descripcion: descripcion || null };
+    const q = id ? supabase.from('academia_eventos').update(payload).eq('id', id) : supabase.from('academia_eventos').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ evento: data });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/academia/admin/asistencia', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { evento_id, asistencias } = req.body || {};
+    for (const a of asistencias || []) {
+      await supabase.from('academia_asistencia').upsert({ evento_id, empleado_id: a.empleado_id, presente: !!a.presente }, { onConflict: 'evento_id,empleado_id' });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.get('/api/academia/admin/eventos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: eventos } = await supabase.from('academia_eventos').select('*').order('fecha', { ascending: false }).limit(100);
+    const { data: asist } = await supabase.from('academia_asistencia').select('*').limit(5000);
+    const { data: emps } = await supabase.from('perfiles').select('id, nombre, profesion').in('rol', ['staff', 'cuidador']).eq('estado', 'aprobado');
+    res.json({ eventos: eventos || [], asistencia: asist || [], empleados: emps || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Sembrar catálogo inicial (idempotente por título)
+app.post('/api/academia/admin/sembrar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const SEMILLA = [
+      { titulo: 'Introducción a la gerontología', area: 'gerontologia', nivel: 'basico', horas: 2, descripcion: 'Fundamentos del envejecimiento, demografía y enfoque gerontológico.' },
+      { titulo: 'Derechos de las personas adultas mayores', area: 'gerontologia', nivel: 'basico', horas: 1.5, descripcion: 'Marco legal y derechos fundamentales de las personas mayores.' },
+      { titulo: 'Calidad de vida en la vejez', area: 'gerontologia', nivel: 'intermedio', horas: 2, descripcion: 'Factores determinantes de la calidad de vida y envejecimiento activo.' },
+      { titulo: 'Higiene y cuidado personal', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Técnicas de higiene, cuidado de piel y confort del adulto mayor.' },
+      { titulo: 'Movilización y transferencias seguras', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Técnicas ergonómicas para mover y transferir sin lesionarse.' },
+      { titulo: 'Prevención de úlceras por presión', area: 'cuidados', nivel: 'intermedio', horas: 1.5, descripcion: 'Factores de riesgo, valoración de piel y medidas preventivas.' },
+      { titulo: 'Prevención de caídas', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Factores de riesgo, entorno seguro y acciones ante una caída.' },
+      { titulo: 'Alimentación e hidratación', area: 'cuidados', nivel: 'basico', horas: 1.5, descripcion: 'Necesidades nutricionales, hidratación y apoyo en la alimentación.' },
+      { titulo: 'Alzheimer y otras demencias', area: 'enfermedades', nivel: 'intermedio', horas: 2.5, descripcion: 'Reconocimiento, comunicación y manejo de personas con demencia.' },
+      { titulo: 'Síndrome de fragilidad y sarcopenia', area: 'enfermedades', nivel: 'avanzado', horas: 2, descripcion: 'Valoración y manejo del adulto mayor frágil.' },
+      { titulo: 'Polifarmacia y riesgos asociados', area: 'enfermedades', nivel: 'intermedio', horas: 2, descripcion: 'Riesgos de múltiples medicamentos y señales de alarma.' },
+      { titulo: 'Comunicación con personas adultas mayores', area: 'salud_mental', nivel: 'basico', horas: 1.5, descripcion: 'Escucha activa, validación y comunicación empática.' },
+      { titulo: 'Estimulación de la memoria', area: 'salud_mental', nivel: 'basico', horas: 2, descripcion: 'Actividades de estimulación cognitiva y orientación.' },
+      { titulo: 'Manejo de ansiedad y depresión', area: 'salud_mental', nivel: 'intermedio', horas: 2, descripcion: 'Reconocimiento de signos y estrategias de acompañamiento.' },
+      { titulo: 'Ejercicios de movilidad articular', area: 'fisioterapia', nivel: 'basico', horas: 2, descripcion: 'Movilidad pasiva y activa según condición del paciente.' },
+      { titulo: 'Entrenamiento del equilibrio', area: 'fisioterapia', nivel: 'intermedio', horas: 2, descripcion: 'Ejercicios de equilibrio y reeducación de la marcha.' },
+      { titulo: 'Uso seguro de auxiliares de movilidad', area: 'fisioterapia', nivel: 'basico', horas: 1.5, descripcion: 'Andadera, bastón y silla de ruedas: uso correcto.' },
+      { titulo: 'Ética en la atención gerontológica', area: 'etica', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Trato digno, confidencialidad y límites profesionales.' },
+      { titulo: 'Prevención del maltrato y negligencia', area: 'etica', nivel: 'intermedio', horas: 1.5, descripcion: 'Identificación y reporte de situaciones de riesgo.' },
+      { titulo: 'Primeros auxilios básicos', area: 'emergencias', nivel: 'basico', horas: 3, obligatorio: true, descripcion: 'RCP, atragantamiento, caídas y activación de emergencias.' },
+      { titulo: 'Reconocimiento de emergencias cardiovasculares y EVC', area: 'emergencias', nivel: 'intermedio', horas: 2, descripcion: 'Signos de alarma y protocolo de actuación inmediata.' }
+    ];
+    let creados = 0;
+    for (const c of SEMILLA) {
+      const { data: existe } = await supabase.from('academia_cursos').select('id').eq('titulo', c.titulo).maybeSingle();
+      if (existe) continue;
+      await supabase.from('academia_cursos').insert({ ...c, estado: 'publicado', instructor: 'Academia AGI' });
+      creados++;
+    }
+    res.json({ ok: true, cursos_creados: creados, total_semilla: SEMILLA.length });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
 // ---------- Observatorio Gerontológico de Ciudad Juárez (solo directivo) ----------
 const TIPOS_SERVICIO_OBS = ['hospital','centro_salud','rehabilitacion','residencia','comunitario','otro'];
 const TIPOS_NECESIDAD = ['acompanamiento','terapia_fisica','cognitiva','psicologica','nutricional','cuidados_personales','prevencion_caidas','dependencia','capacitacion_familiares'];

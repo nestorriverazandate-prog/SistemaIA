@@ -516,6 +516,7 @@
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
  <a class="ghost link" href="/personal">Personal</a>
+ <a class="ghost link" href="/academia">Academia</a>
  <a class="ghost link" href="/pacientes">Pacientes</a>
  <a class="ghost link" href="/seguimiento">Seguimiento</a>
  <a class="ghost link" href="/semaforo">Semáforo</a>

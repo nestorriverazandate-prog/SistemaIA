@@ -472,3 +472,157 @@ create table if not exists public.observatorio_necesidades (
   created_at timestamptz not null default now()
 );
 alter table public.observatorio_necesidades enable row level security;
+
+-- ================= ACADEMIA DE PROFESIONALES GERONTOLÓGICOS =================
+create table if not exists public.academia_cursos (
+  id uuid primary key default gen_random_uuid(),
+  titulo text not null,
+  area text not null,
+  descripcion text,
+  nivel text not null default 'basico' check (nivel in ('basico','intermedio','avanzado')),
+  horas numeric not null default 1,
+  obligatorio boolean not null default false,
+  estado text not null default 'borrador' check (estado in ('borrador','publicado','archivado')),
+  video_url text,
+  video_titulo text,
+  material_url text,
+  material_nombre text,
+  instructor text,
+  fecha_inicio date,
+  fecha_fin date,
+  max_intentos integer not null default 3,
+  calificacion_minima numeric not null default 70,
+  mostrar_resultados boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.academia_cursos enable row level security;
+
+create table if not exists public.academia_unidades (
+  id uuid primary key default gen_random_uuid(),
+  curso_id uuid not null references public.academia_cursos (id) on delete cascade,
+  titulo text not null,
+  contenido text,
+  orden integer not null default 1,
+  created_at timestamptz not null default now()
+);
+create index if not exists academia_uni_idx on public.academia_unidades (curso_id);
+alter table public.academia_unidades enable row level security;
+
+create table if not exists public.academia_preguntas (
+  id uuid primary key default gen_random_uuid(),
+  curso_id uuid not null references public.academia_cursos (id) on delete cascade,
+  unidad_id uuid references public.academia_unidades (id) on delete set null,
+  tipo text not null default 'opcion_multiple' check (tipo in ('opcion_multiple','verdadero_falso','abierta')),
+  pregunta text not null,
+  opciones jsonb,
+  respuesta_correcta text,
+  puntos numeric not null default 1,
+  created_at timestamptz not null default now()
+);
+create index if not exists academia_preg_idx on public.academia_preguntas (curso_id);
+alter table public.academia_preguntas enable row level security;
+
+create table if not exists public.academia_inscripciones (
+  id uuid primary key default gen_random_uuid(),
+  curso_id uuid not null references public.academia_cursos (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  estado text not null default 'asignado' check (estado in ('asignado','en_proceso','aprobado','reprobado')),
+  progreso integer not null default 0,
+  unidades_completadas jsonb not null default '[]'::jsonb,
+  intentos integer not null default 0,
+  calificacion numeric,
+  asignado_por text,
+  asignacion text,
+  created_at timestamptz not null default now(),
+  iniciado_at timestamptz,
+  completado_at timestamptz,
+  unique (curso_id, empleado_id)
+);
+create index if not exists academia_ins_emp_idx on public.academia_inscripciones (empleado_id);
+create index if not exists academia_ins_cur_idx on public.academia_inscripciones (curso_id);
+alter table public.academia_inscripciones enable row level security;
+
+create table if not exists public.academia_evaluaciones (
+  id uuid primary key default gen_random_uuid(),
+  inscripcion_id uuid not null references public.academia_inscripciones (id) on delete cascade,
+  curso_id uuid not null references public.academia_cursos (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  calificacion numeric,
+  porcentaje numeric,
+  respuestas jsonb,
+  pendientes_revision jsonb,
+  intentos integer not null default 1,
+  created_at timestamptz not null default now()
+);
+create index if not exists academia_eval_emp_idx on public.academia_evaluaciones (empleado_id);
+alter table public.academia_evaluaciones enable row level security;
+
+create table if not exists public.academia_constancias (
+  id uuid primary key default gen_random_uuid(),
+  inscripcion_id uuid not null references public.academia_inscripciones (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  curso_id uuid not null references public.academia_cursos (id) on delete cascade,
+  folio text not null unique,
+  calificacion numeric,
+  horas numeric,
+  created_at timestamptz not null default now()
+);
+alter table public.academia_constancias enable row level security;
+
+create table if not exists public.academia_protocolos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  version text,
+  descripcion text,
+  contenido_url text,
+  estado text not null default 'vigente' check (estado in ('vigente','archivado')),
+  responsable text,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+alter table public.academia_protocolos enable row level security;
+
+create table if not exists public.academia_lecturas (
+  id uuid primary key default gen_random_uuid(),
+  protocolo_id uuid not null references public.academia_protocolos (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  confirmado_at timestamptz not null default now(),
+  unique (protocolo_id, empleado_id)
+);
+alter table public.academia_lecturas enable row level security;
+
+create table if not exists public.academia_competencias (
+  id uuid primary key default gen_random_uuid(),
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  competencia text not null,
+  dimension text not null default 'conocimientos' check (dimension in ('conocimientos','habilidades','actitudes','etica')),
+  nivel integer not null check (nivel between 1 and 4),
+  evaluador text,
+  notas text,
+  created_at timestamptz not null default now()
+);
+create index if not exists academia_comp_emp_idx on public.academia_competencias (empleado_id);
+alter table public.academia_competencias enable row level security;
+
+create table if not exists public.academia_eventos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  fecha date not null,
+  hora text,
+  duracion text,
+  instructor text,
+  modalidad text default 'virtual',
+  ubicacion text,
+  descripcion text,
+  created_at timestamptz not null default now()
+);
+alter table public.academia_eventos enable row level security;
+
+create table if not exists public.academia_asistencia (
+  id uuid primary key default gen_random_uuid(),
+  evento_id uuid not null references public.academia_eventos (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  presente boolean not null default false,
+  unique (evento_id, empleado_id)
+);
+alter table public.academia_asistencia enable row level security;
