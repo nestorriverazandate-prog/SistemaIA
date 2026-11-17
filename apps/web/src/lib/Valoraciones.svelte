@@ -145,7 +145,7 @@
  }
  const puntajePrevia = $derived(formEscala ? puntosDe(formResp, formEscala) : 0);
  const interpretePrevia = $derived(formEscala && escActiva ? escActiva.interpretar(puntajePrevia) : '');
- const completa = $derived(formEscala ? itemsEscala.every((it) => formResp[it.k] != null) : false);
+ const completa = $derived(formEscala ? itemsEscala.every((it) => formResp[it.k] !== undefined && formResp[it.k] !== '') : false);
 
  function nuevaValoracion(esc) {
   formEscala = esc;
@@ -325,27 +325,19 @@
    {:else}
     {#if escActiva.balance}
      <p class="muted small"><strong>Equilibrio</strong> (máx 16)</p>
-     {#each escActiva.balance as it (it.k)}
-      <div class="val-field">
-       <span>{it.t}</span>
-       <div class="opts">
-        {#each it.o as [lbl, pts]}
-         <label class="opt"><input type="radio" name="b-{it.k}" checked={formResp[it.k] === lbl} onchange={() => formResp = { ...formResp, [it.k]: lbl }} /> {lbl} <em>({pts})</em></label>
-        {/each}
-       </div>
-      </div>
-     {/each}
-     <p class="muted small"><strong>Marcha</strong> (máx 12)</p>
     {/if}
     {#each itemsEscala as it (it.k)}
-     <div class="val-field">
-      <span>{it.t}</span>
-      <div class="opts">
+     <label class="val-field">{it.t}
+      <select bind:value={formResp[it.k]}>
+       <option value="">— Seleccionar respuesta —</option>
        {#each it.o as [lbl, pts]}
-        <label class="opt"><input type="radio" name="{formEscala}-{it.k}" checked={formResp[it.k] === lbl} onchange={() => formResp = { ...formResp, [it.k]: lbl }} /> {lbl} <em>({pts})</em></label>
+        <option value={lbl}>{lbl} ({pts} pts)</option>
        {/each}
-      </div>
-     </div>
+      </select>
+     </label>
+     {#if escActiva.balance && it.k === escActiva.balance[escActiva.balance.length - 1].k}
+      <p class="muted small"><strong>Marcha</strong> (máx 12)</p>
+     {/if}
     {/each}
    {/if}
 
@@ -384,7 +376,7 @@
 .form-row label { display: flex; flex-direction: column; font-size: .8rem; gap: .2rem; }
 .form-row input { padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
 .val-field { display: block; margin: .5rem 0; font-size: .82rem; }
-.val-field input, .val-field textarea { width: 100%; padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; margin-top: .2rem; box-sizing: border-box; }
+.val-field input, .val-field textarea, .val-field select { width: 100%; padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; margin-top: .2rem; box-sizing: border-box; }
 .opts { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
 .opt { display: flex; align-items: center; gap: .25rem; font-size: .78rem; font-weight: 400; cursor: pointer; }
 .opt em { color: oklch(0.5 0.03 225); font-style: normal; font-size: .7rem; }
