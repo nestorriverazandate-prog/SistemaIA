@@ -132,6 +132,17 @@ export const api = {
   pagos: (params = '') => request(`/api/pagos${params}`),
   crearPago: (body) => request('/api/pagos', { method: 'POST', body: JSON.stringify(body) }),
   actualizarPago: (id, body) => request(`/api/pagos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  evaluaciones: (params = '') => request(`/api/evaluaciones${params}`),
+  crearEvaluacion: (body) => request('/api/evaluaciones', { method: 'POST', body: JSON.stringify(body) }),
+  actualizarEvaluacion: (id, body) => request(`/api/evaluaciones/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  metricasEmpleado: (params) => request(`/api/evaluaciones/metricas?${params}`),
+  planesMejora: (params = '') => request(`/api/planes-mejora${params}`),
+  crearPlanMejora: (body) => request('/api/planes-mejora', { method: 'POST', body: JSON.stringify(body) }),
+  actualizarPlanMejora: (id, body) => request(`/api/planes-mejora/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  capacitaciones: (params = '') => request(`/api/capacitaciones${params}`),
+  crearCapacitacion: (body) => request('/api/capacitaciones', { method: 'POST', body: JSON.stringify(body) }),
+  encuestas: (params = '') => request(`/api/encuestas${params}`),
+  crearEncuesta: (body) => request('/api/encuestas', { method: 'POST', body: JSON.stringify(body) }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

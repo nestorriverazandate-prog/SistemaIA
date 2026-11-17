@@ -2068,6 +2068,244 @@ app.patch('/api/pagos/:id', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error al actualizar pago' }); }
 });
 
+// ---------- Evaluación de desempeño del empleado ----------
+const INDICADORES_EVAL = ['puntualidad', 'cumplimiento_visitas', 'calidad_notas', 'cumplimiento_actividades', 'capacitacion', 'satisfaccion', 'seguimiento_indicaciones'];
+const ETIQUETAS_EVAL = {
+  puntualidad: 'Puntualidad', cumplimiento_visitas: 'Cumplimiento de visitas', calidad_notas: 'Calidad de notas de evolución',
+  cumplimiento_actividades: 'Cumplimiento de actividades', capacitacion: 'Capacitación', satisfaccion: 'Satisfacción de pacientes y familiares',
+  seguimiento_indicaciones: 'Seguimiento de indicaciones'
+};
+const NIVELES_EVAL = { 1: 'Deficiente', 2: 'Necesita mejorar', 3: 'Satisfactorio', 4: 'Bueno', 5: 'Excelente' };
+
+// Métricas automáticas del trabajador en un periodo (datos reales del sistema)
+async function metricasEmpleado(trabajador_id, desde, hasta) {
+  const { data: visitas } = await supabase.from('visitas')
+    .select('id, fecha, hora_programada, estado, llegada_at, salida_at')
+    .eq('trabajador_id', trabajador_id).gte('fecha', desde).lte('fecha', hasta).limit(500);
+  const { data: notas } = await supabase.from('notas_atencion')
+    .select('id, paciente_id, especialidad, incidencias, revisado, created_at')
+    .eq('trabajador_id', trabajador_id).gte('created_at', desde).lte('created_at', hasta + 'T23:59:59').limit(500);
+  const { data: evidencias } = await supabase.from('evidencias')
+    .select('id').eq('trabajador_id', trabajador_id).gte('created_at', desde).lte('created_at', hasta + 'T23:59:59').limit(500);
+  const { data: caps } = await supabase.from('capacitaciones')
+    .select('id, curso, fecha, horas').eq('trabajador_id', trabajador_id).gte('fecha', desde).lte('fecha', hasta).limit(100);
+  const { data: encuestas } = await supabase.from('encuestas')
+    .select('puntuacion').eq('trabajador_id', trabajador_id).gte('created_at', desde).lte('created_at', hasta + 'T23:59:59').limit(200);
+
+  const programadas = (visitas || []).filter((v) => v.estado === 'programada').length;
+  const completadas = (visitas || []).filter((v) => ['finalizada', 'completada'].includes(v.estado)).length;
+  const noShow = (visitas || []).filter((v) => v.estado === 'no_show').length;
+  // Puntualidad: de las visitas con llegada registrada, % que llegó ≤15 min después de la hora programada
+  const conLlegada = (visitas || []).filter((v) => v.llegada_at && v.hora_programada);
+  let puntuales = 0;
+  for (const v of conLlegada) {
+    const prog = new Date(`${v.fecha}T${v.hora_programada}:00`);
+    const lleg = new Date(v.llegada_at);
+    if (!isNaN(prog) && !isNaN(lleg) && (lleg - prog) <= 15 * 60000) puntuales++;
+  }
+  const puntualidadPct = conLlegada.length ? Math.round((puntuales / conLlegada.length) * 100) : null;
+  const cumplimientoPct = (programadas + completadas + noShow) ? Math.round((completadas / (programadas + completadas + noShow)) * 100) : null;
+  const satisfaccionProm = encuestas?.length ? (encuestas.reduce((s, e) => s + e.puntuacion, 0) / encuestas.length).toFixed(1) : null;
+
+  return {
+    visitas: { programadas, completadas, no_show: noShow, total: (visitas || []).length },
+    puntualidad_pct: puntualidadPct,
+    cumplimiento_pct: cumplimientoPct,
+    notas: { total: (notas || []).length, con_incidencia: (notas || []).filter((n) => n.incidencias && String(n.incidencias).trim()).length, revisadas: (notas || []).filter((n) => n.revisado).length },
+    evidencias: (evidencias || []).length,
+    capacitaciones: (caps || []).map((c) => ({ curso: c.curso, fecha: c.fecha, horas: c.horas })),
+    encuestas: { total: (encuestas || []).length, promedio: satisfaccionProm }
+  };
+}
+
+app.get('/api/evaluaciones', requireUser, async (req, res) => {
+  try {
+    let q = supabase.from('evaluaciones_empleado')
+      .select('*, perfiles!evaluaciones_empleado_trabajador_id_fkey(nombre, email, profesion, especialidad)')
+      .order('fecha_fin', { ascending: false }).limit(300);
+    if (!isAdmin(req)) q = q.eq('trabajador_id', req.user.id);
+    else if (req.query.trabajador_id) q = q.eq('trabajador_id', req.query.trabajador_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ evaluaciones: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error al obtener evaluaciones' }); }
+});
+
+app.post('/api/evaluaciones', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { trabajador_id, periodo, fecha_inicio, fecha_fin, calificaciones, fortalezas, oportunidades, observaciones, recomendaciones } = req.body || {};
+    if (!trabajador_id || !periodo || !fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'Faltan datos del periodo' });
+    if (!calificaciones || typeof calificaciones !== 'object') return res.status(400).json({ error: 'Calificaciones requeridas' });
+    const vals = Object.values(calificaciones).map(Number);
+    if (vals.some((v) => !(v >= 1 && v <= 5))) return res.status(400).json({ error: 'Cada indicador debe calificar de 1 a 5' });
+    const promedio = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const porcentaje = Math.round((promedio / 5) * 100);
+    const resultado = porcentaje >= 90 ? 'Desempeño excelente' : porcentaje >= 80 ? 'Desempeño satisfactorio' : porcentaje >= 70 ? 'Desempeño en desarrollo' : 'Requiere intervención y seguimiento';
+    const { data, error } = await supabase.from('evaluaciones_empleado').insert({
+      trabajador_id, periodo, fecha_inicio, fecha_fin,
+      calificaciones: Object.fromEntries(Object.entries(calificaciones).map(([k, v]) => [k, Number(v)])),
+      promedio: promedio.toFixed(2), porcentaje, resultado,
+      fortalezas: fortalezas ? String(fortalezas).slice(0, 2000) : null,
+      oportunidades: oportunidades ? String(oportunidades).slice(0, 2000) : null,
+      observaciones: observaciones ? String(observaciones).slice(0, 2000) : null,
+      recomendaciones: recomendaciones ? String(recomendaciones).slice(0, 2000) : null,
+      creado_por: req.user.email
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ evaluacion: data });
+  } catch (e) { console.error('POST evaluacion:', e); res.status(500).json({ error: 'Error al crear evaluación' }); }
+});
+
+app.patch('/api/evaluaciones/:id', requireUser, async (req, res) => {
+  try {
+    const { data: ev } = await supabase.from('evaluaciones_empleado').select('*').eq('id', req.params.id).maybeSingle();
+    if (!ev) return res.status(404).json({ error: 'No encontrada' });
+    // El empleado solo puede confirmar que revisó su evaluación
+    if (!isAdmin(req)) {
+      if (ev.trabajador_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+      if (req.body.revisada === true && !ev.revisada) {
+        const { data, error } = await supabase.from('evaluaciones_empleado').update({ revisada: true, revisada_at: new Date().toISOString(), revisada_por: req.user.email }).eq('id', ev.id).select().single();
+        if (error) throw error;
+        return res.json({ evaluacion: data });
+      }
+      return res.status(403).json({ error: 'Solo puedes confirmar la revisión' });
+    }
+    const update = {};
+    for (const f of ['fortalezas', 'oportunidades', 'observaciones', 'recomendaciones']) if (req.body[f] !== undefined) update[f] = req.body[f] ? String(req.body[f]).slice(0, 2000) : null;
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('evaluaciones_empleado').update(update).eq('id', ev.id).select().single();
+    if (error) throw error;
+    res.json({ evaluacion: data });
+  } catch (e) { res.status(500).json({ error: 'Error al actualizar' }); }
+});
+
+// Métricas automáticas para sugerir calificaciones
+app.get('/api/evaluaciones/metricas', requireUser, async (req, res) => {
+  try {
+    const tid = req.query.trabajador_id;
+    if (!tid) return res.status(400).json({ error: 'trabajador_id requerido' });
+    if (!isAdmin(req) && tid !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+    const hasta = req.query.hasta || new Date().toISOString().slice(0, 10);
+    const desde = req.query.desde || `${hasta.slice(0, 7)}-01`;
+    const m = await metricasEmpleado(tid, desde, hasta);
+    res.json({ metricas: m, indicadores: INDICADORES_EVAL, etiquetas: ETIQUETAS_EVAL, niveles: NIVELES_EVAL });
+  } catch (e) { res.status(500).json({ error: 'Error al calcular métricas' }); }
+});
+
+// ---------- Planes de mejora ----------
+app.get('/api/planes-mejora', requireUser, async (req, res) => {
+  try {
+    let q = supabase.from('planes_mejora').select('*, perfiles!planes_mejora_trabajador_id_fkey(nombre, email)').order('created_at', { ascending: false }).limit(200);
+    if (!isAdmin(req)) q = q.eq('trabajador_id', req.user.id);
+    else if (req.query.trabajador_id) q = q.eq('trabajador_id', req.query.trabajador_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ planes: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/planes-mejora', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { trabajador_id, evaluacion_id, area, problema, objetivo, actividades, fecha_limite, responsable, proxima_evaluacion } = req.body || {};
+    if (!trabajador_id || !area) return res.status(400).json({ error: 'trabajador_id y area son requeridos' });
+    const { data, error } = await supabase.from('planes_mejora').insert({
+      trabajador_id, evaluacion_id: evaluacion_id || null, area: String(area).slice(0, 200),
+      problema: problema ? String(problema).slice(0, 2000) : null,
+      objetivo: objetivo ? String(objetivo).slice(0, 2000) : null,
+      actividades: actividades ? String(actividades).slice(0, 3000) : null,
+      fecha_limite: fecha_limite || null, responsable: responsable ? String(responsable).slice(0, 200) : null,
+      proxima_evaluacion: proxima_evaluacion || null, estado: 'pendiente'
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ plan: data });
+  } catch (e) { console.error('POST plan:', e); res.status(500).json({ error: 'Error al crear plan' }); }
+});
+
+app.patch('/api/planes-mejora/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { estado, ...resto } = req.body || {};
+    const update = {};
+    if (estado && ['pendiente', 'en_proceso', 'completado'].includes(estado)) update.estado = estado;
+    for (const f of ['problema', 'objetivo', 'actividades', 'fecha_limite', 'responsable', 'proxima_evaluacion', 'area']) {
+      if (resto[f] !== undefined) update[f] = resto[f] ? String(resto[f]).slice(0, 3000) : null;
+    }
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('planes_mejora').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ plan: data });
+  } catch (e) { res.status(500).json({ error: 'Error al actualizar plan' }); }
+});
+
+// ---------- Capacitaciones ----------
+app.get('/api/capacitaciones', requireUser, async (req, res) => {
+  try {
+    let q = supabase.from('capacitaciones').select('*, perfiles!capacitaciones_trabajador_id_fkey(nombre, email)').order('fecha', { ascending: false }).limit(300);
+    if (!isAdmin(req)) q = q.eq('trabajador_id', req.user.id);
+    else if (req.query.trabajador_id) q = q.eq('trabajador_id', req.query.trabajador_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ capacitaciones: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/capacitaciones', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { trabajador_id, curso, fecha, horas, tipo } = req.body || {};
+    if (!trabajador_id || !curso) return res.status(400).json({ error: 'trabajador_id y curso son requeridos' });
+    const { data, error } = await supabase.from('capacitaciones').insert({
+      trabajador_id, curso: String(curso).slice(0, 300), fecha: fecha || new Date().toISOString().slice(0, 10),
+      horas: horas != null ? Number(horas) : null, tipo: tipo ? String(tipo).slice(0, 100) : null
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ capacitacion: data });
+  } catch (e) { res.status(500).json({ error: 'Error al registrar capacitación' }); }
+});
+
+// ---------- Encuestas de satisfacción ----------
+app.post('/api/encuestas', requireUser, async (req, res) => {
+  try {
+    const { paciente_id, puntuacion, comentario } = req.body || {};
+    const p = Number(puntuacion);
+    if (!paciente_id || !(p >= 1 && p <= 5)) return res.status(400).json({ error: 'paciente_id y puntuacion (1-5) requeridos' });
+    // Familiar/staff solo puede evaluar pacientes vinculados o asignados
+    let trabajador_id = null;
+    if (!isAdmin(req)) {
+      const rol = req.user?.perfil?.rol;
+      if (rol === 'familiar') {
+        const { data: v } = await supabase.from('vinculos_familiar').select('id').eq('paciente_id', paciente_id).eq('familiar_id', req.user.id).eq('activo', true).limit(1);
+        if (!v?.length) return res.status(403).json({ error: 'Paciente no vinculado' });
+      } else {
+        const { data: v } = await supabase.from('visitas').select('id').eq('paciente_id', paciente_id).eq('trabajador_id', req.user.id).neq('estado', 'cancelada').limit(1);
+        if (!v?.length) return res.status(403).json({ error: 'Paciente no asignado' });
+      }
+      // Trabajador evaluado = último profesional que atendió al paciente
+      const { data: ult } = await supabase.from('visitas').select('trabajador_id').eq('paciente_id', paciente_id).not('trabajador_id', 'is', null).order('fecha', { ascending: false }).limit(1).maybeSingle();
+      trabajador_id = ult?.trabajador_id || null;
+    }
+    const { data, error } = await supabase.from('encuestas').insert({
+      paciente_id, trabajador_id, autor_id: req.user.id, puntuacion: p,
+      comentario: comentario ? String(comentario).slice(0, 1000) : null
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ encuesta: data });
+  } catch (e) { console.error('POST encuesta:', e); res.status(500).json({ error: 'Error al registrar encuesta' }); }
+});
+
+app.get('/api/encuestas', requireUser, async (req, res) => {
+  try {
+    let q = supabase.from('encuestas').select('*').order('created_at', { ascending: false }).limit(300);
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+    if (req.query.trabajador_id) q = q.eq('trabajador_id', req.query.trabajador_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ encuestas: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
 // ---------- Valoración gerontológica (escalas validadas) ----------
 async function puedeAtenderPaciente(req, paciente_id) {
   if (isAdmin(req)) return true;

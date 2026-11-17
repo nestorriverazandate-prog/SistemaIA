@@ -269,6 +269,70 @@ create table if not exists public.pagos (
 create index if not exists pagos_pac_idx on public.pagos (paciente_id);
 create index if not exists pagos_fecha_idx on public.pagos (fecha);
 alter table public.pagos enable row level security;
+-- Evaluación de desempeño del empleado
+create table if not exists public.evaluaciones_empleado (
+  id uuid primary key default gen_random_uuid(),
+  trabajador_id uuid not null references public.perfiles (id) on delete cascade,
+  periodo text not null,
+  fecha_inicio date not null,
+  fecha_fin date not null,
+  calificaciones jsonb not null,
+  promedio numeric,
+  porcentaje numeric,
+  resultado text,
+  fortalezas text,
+  oportunidades text,
+  observaciones text,
+  recomendaciones text,
+  revisada boolean not null default false,
+  revisada_at timestamptz,
+  revisada_por text,
+  creado_por text,
+  created_at timestamptz not null default now()
+);
+create index if not exists eval_emp_idx on public.evaluaciones_empleado (trabajador_id);
+alter table public.evaluaciones_empleado enable row level security;
+-- Planes de mejora individual
+create table if not exists public.planes_mejora (
+  id uuid primary key default gen_random_uuid(),
+  evaluacion_id uuid references public.evaluaciones_empleado (id) on delete set null,
+  trabajador_id uuid not null references public.perfiles (id) on delete cascade,
+  area text not null,
+  problema text,
+  objetivo text,
+  actividades text,
+  fecha_limite date,
+  responsable text,
+  proxima_evaluacion date,
+  estado text not null default 'pendiente' check (estado in ('pendiente','en_proceso','completado')),
+  created_at timestamptz not null default now()
+);
+create index if not exists planes_mejora_emp_idx on public.planes_mejora (trabajador_id);
+alter table public.planes_mejora enable row level security;
+-- Capacitaciones del personal
+create table if not exists public.capacitaciones (
+  id uuid primary key default gen_random_uuid(),
+  trabajador_id uuid not null references public.perfiles (id) on delete cascade,
+  curso text not null,
+  fecha date not null default current_date,
+  horas numeric,
+  tipo text,
+  created_at timestamptz not null default now()
+);
+create index if not exists capacitaciones_emp_idx on public.capacitaciones (trabajador_id);
+alter table public.capacitaciones enable row level security;
+-- Encuestas de satisfacción (pacientes/familiares)
+create table if not exists public.encuestas (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid references public.pacientes (id) on delete set null,
+  trabajador_id uuid references public.perfiles (id) on delete set null,
+  autor_id uuid,
+  puntuacion integer not null check (puntuacion between 1 and 5),
+  comentario text,
+  created_at timestamptz not null default now()
+);
+create index if not exists encuestas_emp_idx on public.encuestas (trabajador_id);
+alter table public.encuestas enable row level security;
 create table if not exists public.auditoria_expediente (
   id uuid primary key default gen_random_uuid(),
   paciente_id uuid not null references public.pacientes (id) on delete cascade,
