@@ -578,7 +578,8 @@
     </div>
    </div>
    <div class="exp-acciones">
-    <a class="mini link" href="/expediente?id={exp.paciente.id}" target="_blank" title="Expediente multidisciplinario compartido">📋 Expediente multidisciplinario</a>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}&tab=valoracion">🩺 Valoración</a>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}">📋 Expediente multidisciplinario</a>
     <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
    </div>
   </div>

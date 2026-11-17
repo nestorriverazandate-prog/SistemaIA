@@ -15,9 +15,16 @@
  let fDesde = $state('');
  let fHasta = $state('');
  let evUrls = $state({});
- let tab = $state('evolucion'); // evolucion | plan | auditoria
+ let tab = $state(new URLSearchParams(window.location.search).get('tab') || 'evolucion'); // evolucion | valoracion | plan | auditoria
 
  const DISCIPLINAS = ['Gerontología', 'Terapia Física y Rehabilitación', 'Psicología', 'Nutrición', 'Enfermería', 'Cuidadores', 'Trabajo social'];
+
+ function irTab(t) {
+  tab = t;
+  const url = new URL(window.location.href);
+  url.searchParams.set('tab', t);
+  history.replaceState(null, '', url);
+ }
 
  async function cargar() {
   try {
@@ -128,10 +135,10 @@
    </div>
   </div>
   <div class="tabs">
-   <button class:active={tab === 'evolucion'} onclick={() => tab = 'evolucion'}>Evolución ({exp.notas.length})</button>
-   <button class:active={tab === 'valoracion'} onclick={() => tab = 'valoracion'}>Valoración</button>
-   <button class:active={tab === 'plan'} onclick={() => tab = 'plan'}>Plan de atención</button>
-   {#if esAdmin}<button class:active={tab === 'auditoria'} onclick={() => tab = 'auditoria'}>Auditoría ({(exp.auditoria || []).length})</button>{/if}
+   <button class:active={tab === 'evolucion'} onclick={() => irTab('evolucion')}>Evolución ({exp.notas.length})</button>
+   <button class:active={tab === 'valoracion'} onclick={() => irTab('valoracion')}>Valoración</button>
+   <button class:active={tab === 'plan'} onclick={() => irTab('plan')}>Plan de atención</button>
+   {#if esAdmin}<button class:active={tab === 'auditoria'} onclick={() => irTab('auditoria')}>Auditoría ({(exp.auditoria || []).length})</button>{/if}
   </div>
   {#if error}<p class="error">{error}</p>{/if}
   {#if msg}<p class="ok">{msg}</p>{/if}
