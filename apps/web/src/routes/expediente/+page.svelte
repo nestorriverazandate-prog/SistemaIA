@@ -15,7 +15,9 @@
  let fDesde = $state('');
  let fHasta = $state('');
  let evUrls = $state({});
- let tab = $state(typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('tab') || 'evolucion') : 'evolucion'); // evolucion | valoracion | plan | auditoria
+ let tab = $state(typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('tab') || 'evolucion') : 'evolucion'); // evolucion | valoracion | plan | cobros | auditoria
+ let pagoForm = $state({ monto: '', fecha: new Date().toISOString().slice(0, 10), metodo: '', estado: 'pagado', periodo: '', notas: '' });
+ let pagoMsg = $state('');
 
  const DISCIPLINAS = ['Gerontología', 'Terapia Física y Rehabilitación', 'Psicología', 'Nutrición', 'Enfermería', 'Cuidadores', 'Trabajo social'];
 
@@ -38,6 +40,16 @@
     api.evidenciaUrl(e.id).then((r) => { evUrls = { ...evUrls, [e.id]: r.url }; }).catch(() => {});
    }
   } catch (e) { error = e.message; }
+ }
+
+ async function registrarPago() {
+  pagoMsg = '';
+  try {
+   await api.crearPago({ paciente_id: exp.paciente.id, ...pagoForm, monto: Number(pagoForm.monto) });
+   pagoMsg = 'Cobro registrado';
+   pagoForm = { monto: '', fecha: new Date().toISOString().slice(0, 10), metodo: '', estado: 'pagado', periodo: '', notas: '' };
+   await cargar();
+  } catch (e) { pagoMsg = e.message; }
  }
 
  async function guardarPlan() {
@@ -138,6 +150,7 @@
    <button class:active={tab === 'evolucion'} onclick={() => irTab('evolucion')}>Evolución ({exp.notas.length})</button>
    <button class:active={tab === 'valoracion'} onclick={() => irTab('valoracion')}>Valoración</button>
    <button class:active={tab === 'plan'} onclick={() => irTab('plan')}>Plan de atención</button>
+   {#if esAdmin}<button class:active={tab === 'cobros'} onclick={() => irTab('cobros')}>Cobros</button>{/if}
    {#if esAdmin}<button class:active={tab === 'auditoria'} onclick={() => irTab('auditoria')}>Auditoría ({(exp.auditoria || []).length})</button>{/if}
   </div>
   {#if error}<p class="error">{error}</p>{/if}
@@ -209,6 +222,49 @@
  </section>
  {/if}
 
+ {#if tab === 'cobros' && esAdmin}
+ <section class="card">
+  <h3>Paquete contratado y cobros</h3>
+  {#if exp.paciente.paquete}
+   <div class="pack-info">
+    <p><strong>{exp.paciente.paquete.nombre}</strong> — ${Number(exp.paciente.paquete.precio || 0).toFixed(2)}/mes</p>
+    <p class="muted small">{exp.paciente.paquete.servicios || exp.paciente.paquete.descripcion || '—'}</p>
+    {#if exp.paciente.fecha_contratacion}<p class="muted small">Contratado: {fmtFecha(exp.paciente.fecha_contratacion)}{exp.paciente.profesional_asignado ? ' · ' + exp.paciente.profesional_asignado : ''}</p>{/if}
+   </div>
+  {:else}
+   <p class="muted">Sin paquete contratado asignado.</p>
+  {/if}
+  <h4>Registrar cobro</h4>
+  <div class="pago-form">
+   <input type="number" step="0.01" min="0" bind:value={pagoForm.monto} placeholder="Monto $" />
+   <input type="date" bind:value={pagoForm.fecha} />
+   <select bind:value={pagoForm.metodo}><option value="">Método</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Otro</option></select>
+   <select bind:value={pagoForm.estado}><option value="pagado">Pagado</option><option value="pendiente">Pendiente</option></select>
+   <input bind:value={pagoForm.periodo} placeholder="Periodo (ej: 2025-01)" />
+   <button class="mini" onclick={registrarPago}>Guardar</button>
+  </div>
+  {#if pagoMsg}<p class="muted small">{pagoMsg}</p>{/if}
+  <h4>Historial de cobros</h4>
+  {#if (exp.pagos || []).length}
+   <table>
+    <thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Estado</th><th>Periodo</th><th>Notas</th></tr></thead>
+    <tbody>
+    {#each exp.pagos as p (p.id)}
+     <tr>
+      <td>{fmtFecha(p.fecha)}</td>
+      <td>${Number(p.monto).toFixed(2)}</td>
+      <td>{p.metodo || '—'}</td>
+      <td><span class="audit-chip estado-{p.estado}">{p.estado}</span></td>
+      <td>{p.periodo || '—'}</td>
+      <td class="muted small">{p.notas || '—'}</td>
+     </tr>
+    {/each}
+    </tbody>
+   </table>
+  {:else}<p class="muted">Sin cobros registrados</p>{/if}
+ </section>
+ {/if}
+
  {#if tab === 'auditoria' && esAdmin}
  <section class="card">
   <h3>Auditoría del expediente</h3>
@@ -274,6 +330,11 @@ h2 { margin: 0; font-size: 1.2rem; } h3 { margin-top: 0; font-size: 1rem; }
 textarea { width: 100%; padding: .6rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
 .plan-view { white-space: pre-wrap; background: oklch(0.97 0.01 85); border-radius: 8px; padding: .8rem; font-size: .88rem; }
 .audit-chip { font-size: .7rem; background: oklch(0.94 0.02 85); border-radius: 999px; padding: .1rem .5rem; }
+.pack-info { background: oklch(0.98 0.008 140); border-radius: 8px; padding: .7rem .9rem; margin-bottom: .6rem; }
+.pago-form { display: flex; gap: .4rem; flex-wrap: wrap; margin: .5rem 0 .8rem; }
+.pago-form input, .pago-form select { padding: .4rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-size: .82rem; }
+.estado-pagado { background: #d1e7dd; color: #0f5132; }
+.estado-pendiente { background: #fff3cd; color: #664d03; }
 table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 th, td { text-align: left; padding: .45rem .4rem; border-bottom: 1px solid oklch(0.93 0.025 140); }
 button { padding:.5rem .9rem; border: 0; border-radius: 8px; background: oklch(0.42 0.068 218); color: #f2eee2; font-weight: 600; cursor: pointer; }

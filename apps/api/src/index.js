@@ -896,18 +896,24 @@ app.get('/api/pacientes/:id/expediente', requireUser, async (req, res) => {
       const { data: v } = await supabase.from('visitas').select('id, estado').eq('paciente_id', req.params.id).eq('trabajador_id', req.user.id).limit(5);
       if (!(v || []).some((x) => !['cancelada', 'no_show'].includes(x.estado))) return res.status(403).json({ error: 'Paciente no asignado' });
     }
-    const [{ data: visitas }, { data: notas }, { data: evidencias }, { data: auditoria }] = await Promise.all([
+    const admin = isAdmin(req);
+    const [{ data: visitas }, { data: notas }, { data: evidencias }, { data: auditoria }, { data: pagos }] = await Promise.all([
       supabase.from('visitas').select('*, perfiles!visitas_trabajador_id_fkey(nombre, profesion, especialidad)').eq('paciente_id', req.params.id).order('fecha', { ascending: false }).limit(300),
       supabase.from('notas_atencion').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(500),
       supabase.from('evidencias').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(1000),
-      isAdmin(req) ? supabase.from('auditoria_expediente').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(200) : Promise.resolve({ data: [] })
+      admin ? supabase.from('auditoria_expediente').select('*').eq('paciente_id', req.params.id).order('created_at', { ascending: false }).limit(200) : Promise.resolve({ data: [] }),
+      admin ? supabase.from('pagos').select('*').eq('paciente_id', req.params.id).order('fecha', { ascending: false }).limit(200) : Promise.resolve({ data: [] })
     ]);
+    const { data: paquete } = p.paquete_id
+      ? await supabase.from('paquetes').select('*').eq('id', p.paquete_id).maybeSingle()
+      : { data: null };
     res.json({
-      paciente: p,
+      paciente: { ...p, paquete },
       visitas: visitas || [],
       notas: notas || [],
       evidencias: (evidencias || []).map((e) => ({ id: e.id, nota_id: e.nota_id, visita_id: e.visita_id, descripcion: e.descripcion, nombre_archivo: e.nombre_archivo, created_at: e.created_at })),
-      auditoria: auditoria?.data || []
+      auditoria: auditoria?.data || [],
+      pagos: pagos?.data || []
     });
   } catch (e) {
     console.error('GET expediente:', e);
