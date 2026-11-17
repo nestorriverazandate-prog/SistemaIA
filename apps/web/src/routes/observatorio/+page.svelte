@@ -30,6 +30,7 @@
  }
 
  function dibujarMapa() {
+  try {
   if (!map || !data) return;
   for (const k of Object.keys(capaGrupos)) { map.removeLayer(capaGrupos[k]); }
   capaGrupos = {};
@@ -75,6 +76,7 @@
       .bindPopup(`<b>Zona sin cobertura: ${z.nombre}</b><br/>Registrada en catálogo territorial`)
       .addTo(gOpp);
   }
+  } catch (e) { console.error('dibujarMapa:', e); }
 }
 
  async function guardarZona() {
@@ -178,7 +180,7 @@
    <aside class="panel">
     <h4>Capas</h4>
     {#each [['cobertura','Cobertura de la agencia'],['servicios','Servicios disponibles'],['necesidades','Necesidades gerontológicas'],['oportunidades','Oportunidades de expansión']] as [k, t]}
-     <label class="capa"><input type="checkbox" bind:checked={capas[k]} onchange={dibujarMapa} /> {t}</label>
+     <label class="capa"><input type="checkbox" checked={capas[k]} onchange={() => { capas = { ...capas, [k]: !capas[k] }; dibujarMapa(); }} /> {t}</label>
     {/each}
     <h4>Leyenda</h4>
     <ul class="leyenda">
