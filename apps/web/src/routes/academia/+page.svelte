@@ -51,7 +51,7 @@
     loading = true;
     try {
       const me = await api.raw('/api/me');
-      perfil = me.perfil;
+      perfil = me.user?.perfil || me.perfil;
       if (!esStaff) { loading = false; return; }
       const [cat, mi] = await Promise.all([get('/api/academia/catalogo'), get('/api/academia/mio')]);
       catalogo = cat;

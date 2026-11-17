@@ -12,7 +12,7 @@
     folio = new URLSearchParams(location.search).get('f') || '';
     try {
       const me = await api.raw('/api/me');
-      perfil = me.perfil;
+      perfil = me.user?.perfil || me.user?.perfil;
       const mio = await api.raw('/api/academia/mio');
       const c = (mio.constancias || []).find(x => x.folio === folio);
       if (!c) { error = 'Constancia no encontrada'; }
@@ -21,8 +21,8 @@
         const curso = c.academia_cursos || ins?.academia_cursos;
         const emp = me.empleados?.find?.(e => e.id === c.empleado_id);
         const { data: perfilEmp } = await api.raw('/api/perfiles').catch(() => ({ data: [] }));
-        const p = (perfilEmp?.perfiles || perfilEmp || []).find?.(x => x.id === c.empleado_id) || me.perfil;
-        constancia = { ...c, curso, empleado: p || me.perfil };
+        const p = (perfilEmp?.perfiles || perfilEmp || []).find?.(x => x.id === c.empleado_id) || me.user?.perfil;
+        constancia = { ...c, curso, empleado: p || me.user?.perfil };
       }
     } catch (e) { error = e.message; }
     loading = false;
