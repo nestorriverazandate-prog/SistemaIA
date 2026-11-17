@@ -510,6 +510,7 @@
  {#if stats}<span class="badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
  <a class="ghost link" href="/centro">Centro de Inteligencia</a>
  <a class="ghost link" href="/evaluaciones">Evaluaciones</a>
+ <a class="ghost link" href="/encuestas">Encuestas</a>
  <a class="ghost link" href="/agenda">Agenda</a>
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>

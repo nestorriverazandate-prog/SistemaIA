@@ -386,3 +386,26 @@ alter table public.evidencias enable row level security;
 -- ============================================================
 -- FIN — si todo sale en verde, la plataforma queda completa.
 -- ============================================================
+
+-- Encuestas de satisfacción familiar por periodo (envío mensual automático)
+create table if not exists public.encuestas_periodicas (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  familiar_id uuid not null references public.perfiles (id) on delete cascade,
+  periodo text not null,
+  estado text not null default 'pendiente' check (estado in ('pendiente','respondida')),
+  respuestas jsonb,
+  comentario text,
+  solicitar_contacto boolean not null default false,
+  acciones text,
+  accion_responsable text,
+  accion_fecha date,
+  accion_resultado text,
+  recordatorios integer not null default 0,
+  created_at timestamptz not null default now(),
+  respondida_at timestamptz,
+  unique (paciente_id, familiar_id, periodo)
+);
+create index if not exists enc_period_fam_idx on public.encuestas_periodicas (familiar_id);
+create index if not exists enc_period_per_idx on public.encuestas_periodicas (periodo);
+alter table public.encuestas_periodicas enable row level security;

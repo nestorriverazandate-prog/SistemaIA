@@ -143,6 +143,11 @@ export const api = {
   crearCapacitacion: (body) => request('/api/capacitaciones', { method: 'POST', body: JSON.stringify(body) }),
   encuestas: (params = '') => request(`/api/encuestas${params}`),
   crearEncuesta: (body) => request('/api/encuestas', { method: 'POST', body: JSON.stringify(body) }),
+  encuestasPeriodo: (params = '') => request(`/api/encuestas-periodo${params}`),
+  responderEncuestaPeriodo: (id, body) => request(`/api/encuestas-periodo/${id}/responder`, { method: 'POST', body: JSON.stringify(body) }),
+  generarEncuestasPeriodo: (periodo) => request('/api/encuestas-periodo/generar', { method: 'POST', body: JSON.stringify({ periodo }) }),
+  accionEncuestaPeriodo: (id, body) => request(`/api/encuestas-periodo/${id}/accion`, { method: 'PATCH', body: JSON.stringify(body) }),
+  estadisticasEncuestas: () => request('/api/encuestas-periodo/estadisticas'),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

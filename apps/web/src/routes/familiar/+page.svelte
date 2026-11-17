@@ -14,6 +14,27 @@
  let famMsg = $state('');
  let famErr = $state('');
  let famSaving = $state(false);
+ let encuestas = $state([]);
+ let encPreguntas = $state([]);
+ let encNiveles = $state({});
+ let encForm = $state({});
+ let encComentario = $state('');
+ let encContacto = $state(false);
+ let encMsg = $state('');
+ let encAbierta = $state(null);
+
+ async function responderEncuesta(e) {
+  encMsg = '';
+  const faltan = encPreguntas.filter((p) => !encForm[e.id]?.[p.k]);
+  if (faltan.length) { encMsg = 'Responde todas las preguntas'; return; }
+  try {
+   await api.responderEncuestaPeriodo(e.id, { respuestas: encForm[e.id], comentario: encComentario, solicitar_contacto: encContacto });
+   encMsg = 'Encuesta enviada. ¡Gracias por tu opinión!';
+   encAbierta = null;
+   const er = await api.encuestasPeriodo();
+   encuestas = er.encuestas || [];
+  } catch (err) { encMsg = err.message; }
+ }
 
  async function guardarMisDatos() {
   famErr = ''; famMsg = '';
@@ -33,6 +54,12 @@
   try {
    const r = await api.misFamiliares();
    grupos = r.pacientes || [];
+   try {
+    const er = await api.encuestasPeriodo();
+    encuestas = er.encuestas || [];
+    encPreguntas = er.preguntas || [];
+    encNiveles = er.niveles || {};
+   } catch {}
   } catch (e) { error = e.message; }
  }
 
@@ -192,6 +219,50 @@
  </section>
 
  <section class="card">
+  <h2>Encuestas de satisfacción</h2>
+  {#if encMsg}<p class="ok small">{encMsg}</p>{/if}
+  {#each encuestas as e (e.id)}
+   <div class="enc-item">
+    <div class="enc-head">
+     <strong>{e.pacientes?.nombre} {e.pacientes?.apellido}</strong>
+     <span class="muted small">{e.periodo}</span>
+     {#if e.estado === 'respondida'}<span class="estado ok">Respondida{e.respondida_at ? ' · ' + fmtFecha(e.respondida_at) : ''}</span>
+     {:else}<span class="estado pend">Pendiente</span>{/if}
+    </div>
+    {#if e.estado === 'pendiente'}
+     {#if encAbierta === e.id}
+      <div class="enc-form">
+       {#each encPreguntas as p}
+        <div class="enc-q">
+         <span>{p.texto}</span>
+         <div class="enc-opts">
+          {#each [1,2,3,4,5] as n}
+           <label class="enc-opt" class:sel={encForm[e.id]?.[p.k] === n}>
+            <input type="radio" name="enc-{e.id}-{p.k}" checked={encForm[e.id]?.[p.k] === n} onchange={() => encForm = { ...encForm, [e.id]: { ...(encForm[e.id] || {}), [p.k]: n } }} />
+            {n} <em>{encNiveles[n]}</em>
+           </label>
+          {/each}
+         </div>
+        </div>
+       {/each}
+       <textarea bind:value={encComentario} rows="2" placeholder="Comentarios, sugerencias o inconformidades (opcional)"></textarea>
+       <label class="enc-check"><input type="checkbox" bind:checked={encContacto} /> Solicito que el directivo se comunique conmigo</label>
+       <button class="mini" onclick={() => responderEncuesta(e)}>Enviar encuesta</button>
+       <button class="mini ghost" onclick={() => encAbierta = null}>Cancelar</button>
+      </div>
+     {:else}
+      <button class="mini" onclick={() => { encAbierta = e.id; encForm = { ...encForm, [e.id]: {} }; encComentario = ''; encContacto = false; }}>Responder encuesta</button>
+     {/if}
+    {:else if e.comentario}
+     <p class="muted small">Tu comentario: {e.comentario}</p>
+    {/if}
+   </div>
+  {:else}
+   <p class="muted">No tienes encuestas de satisfacción por ahora.</p>
+  {/each}
+ </section>
+
+ <section class="card">
   <h2>Mis datos personales</h2>
   <form class="msg-row" onsubmit={(e) => { e.preventDefault(); guardarMisDatos(); }}>
    <input bind:value={famForm.nombre} placeholder="Nombre completo" required />
@@ -329,4 +400,17 @@ button { padding:.5rem .9rem; border: 0; border-radius: 8px; background: oklch(0
 button.mini { padding:.25rem .6rem; font-size:.75rem; }
 button.ghost { background: transparent; color: inherit; border: 1px solid oklch(0.55 0.05 222); }
 button.mini.ghost { color: oklch(0.45 0.03 225); border-color: oklch(0.45 0.03 225); }
+.enc-item { border: 1px solid oklch(0.92 0.02 140); border-radius: 10px; padding: .6rem .8rem; margin: .4rem 0; }
+.enc-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.estado.ok { background: #d1e7dd; color: #0f5132; }
+.estado.pend { background: #fff3cd; color: #664d03; }
+.enc-form { margin-top: .5rem; display: flex; flex-direction: column; gap: .4rem; }
+.enc-q { font-size: .82rem; }
+.enc-opts { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .15rem; }
+.enc-opt { display: flex; align-items: center; gap: .2rem; font-size: .72rem; border: 1px solid oklch(0.88 0.02 85); border-radius: 6px; padding: .15rem .4rem; cursor: pointer; }
+.enc-opt.sel { background: oklch(0.42 0.068 218); color: #fff; border-color: oklch(0.42 0.068 218); }
+.enc-opt input { display: none; }
+.enc-opt em { font-style: normal; font-size: .62rem; opacity: .8; }
+.enc-form textarea { padding: .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; }
+.enc-check { font-size: .8rem; display: flex; gap: .4rem; align-items: center; }
 </style>
