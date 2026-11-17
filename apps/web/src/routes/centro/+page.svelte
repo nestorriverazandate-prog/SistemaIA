@@ -206,12 +206,12 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
     {#each datos.filtros.paquetes as k}<option value={k.id}>{k.nombre}</option>{/each}
    </select>
    <span class="muted small">{datos.periodo.desde} → {datos.periodo.hasta}</span>
-   <button class="mini ghost" onclick={cargar}>↻</button>
+   <button class="mini ghost" onclick={cargar}>Actualizar</button>
   </div>
   <div class="f-row">
-   <button class="mini" onclick={exportarCSV}>⬇ Excel (CSV)</button>
-   <button class="mini" onclick={reportePDF}>🖨️ Reporte PDF</button>
-   <button class="mini ghost" onclick={() => showPago = !showPago}>+ Registrar pago</button>
+   <button class="mini" onclick={exportarCSV}>Descargar Excel (CSV)</button>
+   <button class="mini" onclick={reportePDF}>Reporte PDF</button>
+   <button class="mini ghost" onclick={() => showPago = !showPago}>Registrar pago</button>
   </div>
   {#if showPago}
    <div class="pago-form">
@@ -234,7 +234,7 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 
  <!-- PACIENTES -->
  <section class="card">
-  <h3>👥 Pacientes</h3>
+  <h3>Pacientes</h3>
   <div class="kpis">
    <div class="kpi"><b>{datos.pacientes.total}</b><span>Total</span></div>
    <div class="kpi"><b>{datos.pacientes.activos}</b><span>Activos</span></div>
@@ -242,7 +242,7 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
    <div class="kpi"><b>{datos.pacientes.nuevos}</b><span>Nuevos</span></div>
   </div>
   {#if datos.pacientes.proximosVencer.length}
-   <p class="warn small">⚠️ Paquetes próximos a vencer: {datos.pacientes.proximosVencer.map((p) => `${p.nombre} (${p.dias_restantes}d)`).join(' · ')}</p>
+   <p class="warn small">Atención: paquetes próximos a vencer: {datos.pacientes.proximosVencer.map((p) => `${p.nombre} (${p.dias_restantes}d)`).join(' · ')}</p>
   {/if}
   {#if tortaData}
    <div class="chart-row">
@@ -254,7 +254,7 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 
  <!-- EMPLEADOS -->
  <section class="card">
-  <h3>🧑‍⚕️ Empleados</h3>
+  <h3>Empleados</h3>
   <div class="kpis">
    <div class="kpi"><b>{datos.empleados.total}</b><span>Total</span></div>
    <div class="kpi"><b>{datos.empleados.activos}</b><span>Activos</span></div>
@@ -273,14 +273,14 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 
  <!-- FINANZAS -->
  <section class="card">
-  <h3>💰 Finanzas</h3>
+  <h3>Finanzas</h3>
   <div class="kpis">
    <div class="kpi ok"><b>{fmtMoney(datos.finanzas.cobrado)}</b><span>Cobrado</span></div>
    <div class="kpi warn"><b>{fmtMoney(datos.finanzas.pendiente)}</b><span>Pendiente</span></div>
    <div class="kpi"><b>{fmtMoney(datos.finanzas.proyeccion)}</b><span>Proyección/mes</span></div>
    <div class="kpi"><b>{datos.finanzas.totalPagos}</b><span>Registros</span></div>
   </div>
-  <p class="muted small">💡 Cobrado = pagos marcados como pagados. Proyección = suma de paquetes activos vigentes (no es ingreso real aún).</p>
+  <p class="muted small">Nota: cobrado = pagos marcados como pagados. Proyección = suma de paquetes activos vigentes (no es ingreso real aún).</p>
   {#if Object.keys(datos.finanzas.cobradoPorPaquete).length}
    <table class="mini-tab">
     <thead><tr><th>Paquete</th><th>Cobrado</th></tr></thead>
@@ -308,7 +308,7 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 
  <!-- CALIDAD -->
  <section class="card">
-  <h3>✅ Calidad asistencial</h3>
+  <h3>Calidad asistencial</h3>
   <div class="kpis">
    <div class="kpi"><b>{datos.calidad.valoraciones}</b><span>Valoraciones</span></div>
    <div class="kpi"><b>{datos.calidad.notas}</b><span>Notas de evolución</span></div>
@@ -320,14 +320,14 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 
  <!-- GRÁFICAS -->
  <section class="card">
-  <h3>📈 Visitas por día</h3>
+  <h3>Visitas por día</h3>
   {#if barrasVisitas()}
    <svg viewBox="0 0 600 120" style="width:100%;height:120px">{@html barrasVisitas()}</svg>
   {:else}<p class="muted">Sin visitas en el periodo</p>{/if}
  </section>
 
  <section class="card">
-  <h3>📊 Tendencia últimos 6 meses</h3>
+  <h3>Tendencia últimos 6 meses</h3>
   <table class="mini-tab">
    <thead><tr><th>Mes</th><th>Visitas</th><th>Ingresos cobrados</th></tr></thead>
    <tbody>
@@ -345,19 +345,20 @@ table{width:100%;border-collapse:collapse;font-size:.8rem}th,td{border:1px solid
 header { display: flex; justify-content: space-between; align-items: center; padding: .8rem 2rem; background: oklch(0.3 0.05 222); color: #f2eee2; border-bottom: 3px solid oklch(0.7 0.1 78); flex-wrap: wrap; gap:.5rem; }
 .brand { display: flex; align-items: center; gap: .8rem; text-decoration: none; color: inherit; }
 .brand-text { display: flex; flex-direction: column; }
-.agency { font-size: .72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: oklch(0.7 0.1 78); }
+.agency { font-size: .68rem; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: oklch(0.75 0.09 80); }
 header img { height: 44px; width: 44px; object-fit: cover; border-radius: 10px; background: #f2eee2; padding: 2px; }
-header h1 { font-size: 1.05rem; margin: 0; }
+header h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: .02em; }
 header div:not(.brand) { display: flex; gap:.5rem; align-items: center; flex-wrap: wrap; }
 .badge { font-size:.75rem; background: oklch(0.42 0.068 218); color: #f2eee2; padding:.3rem.6rem; border-radius: 999px; }
-.card { background: #fff; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.card { background: #fff; border-radius: 6px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid oklch(0.92 0.015 85); }
 .center { text-align: center; max-width: 460px; margin: 4rem auto; }
 .layout { padding: 1rem 2rem; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
 .muted { color: oklch(0.45 0.03 225); font-size:.85rem; }
 .small { font-size:.78rem; }
 .warn { color: oklch(0.6 0.15 40); }
 .link { padding:.4rem.8rem; border: 1px solid oklch(0.45 0.03 225); border-radius: 8px; text-decoration: none; }
-h3 { margin-top: 0; font-size: 1rem; } h4 { margin: .8rem 0 .4rem; font-size: .85rem; }
+h3 { margin-top: 0; font-size: .82rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: oklch(0.35 0.05 222); border-bottom: 1px solid oklch(0.9 0.02 85); padding-bottom: .5rem; }
+h4 { margin: .8rem 0 .4rem; font-size: .82rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: oklch(0.4 0.04 225); }
 .f-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .5rem; }
 .seg { display: flex; gap: .2rem; }
 .seg button { background: oklch(0.94 0.02 85); color: oklch(0.4 0.05 225); }
@@ -366,9 +367,9 @@ h3 { margin-top: 0; font-size: 1rem; } h4 { margin: .8rem 0 .4rem; font-size: .8
 .pago-form { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; padding: .6rem; background: oklch(0.98 0.008 140); border-radius: 8px; }
 .pago-form input, .pago-form select { padding: .35rem .5rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-size: .82rem; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; margin: .6rem 0; }
-.kpi { background: oklch(0.98 0.008 140); border-radius: 10px; padding: .6rem .8rem; text-align: center; }
-.kpi b { display: block; font-size: 1.15rem; }
-.kpi span { font-size: .7rem; color: oklch(0.5 0.03 225); }
+.kpi { background: #fff; border: 1px solid oklch(0.9 0.02 85); border-radius: 8px; padding: .7rem .8rem; text-align: center; }
+.kpi b { display: block; font-size: 1.2rem; font-variant-numeric: tabular-nums; color: oklch(0.25 0.04 225); }
+.kpi span { font-size: .68rem; color: oklch(0.5 0.03 225); text-transform: uppercase; letter-spacing: .06em; }
 .kpi.ok b { color: oklch(0.4 0.08 160); }
 .kpi.warn b { color: oklch(0.55 0.15 40); }
 .mini-tab { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: .5rem; }
