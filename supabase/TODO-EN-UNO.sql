@@ -253,6 +253,22 @@ create table if not exists public.valoraciones (
 );
 create index if not exists valoraciones_pac_idx on public.valoraciones (paciente_id);
 alter table public.valoraciones enable row level security;
+-- Pagos/cobros de pacientes (centro de inteligencia financiera)
+create table if not exists public.pagos (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  monto numeric not null,
+  fecha date not null default current_date,
+  metodo text,
+  estado text not null default 'pagado' check (estado in ('pagado','pendiente')),
+  periodo text,
+  notas text,
+  registrado_por text,
+  created_at timestamptz not null default now()
+);
+create index if not exists pagos_pac_idx on public.pagos (paciente_id);
+create index if not exists pagos_fecha_idx on public.pagos (fecha);
+alter table public.pagos enable row level security;
 create table if not exists public.auditoria_expediente (
   id uuid primary key default gen_random_uuid(),
   paciente_id uuid not null references public.pacientes (id) on delete cascade,

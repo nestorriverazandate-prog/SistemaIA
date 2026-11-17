@@ -128,6 +128,10 @@ export const api = {
   valoraciones: (pacienteId) => request(`/api/pacientes/${pacienteId}/valoraciones`),
   crearValoracion: (pacienteId, body) => request(`/api/pacientes/${pacienteId}/valoraciones`, { method: 'POST', body: JSON.stringify(body) }),
   eliminarValoracion: (id) => request(`/api/valoraciones/${id}`, { method: 'DELETE' }),
+  centro: (params = '') => request(`/api/centro${params}`),
+  pagos: (params = '') => request(`/api/pagos${params}`),
+  crearPago: (body) => request('/api/pagos', { method: 'POST', body: JSON.stringify(body) }),
+  actualizarPago: (id, body) => request(`/api/pagos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

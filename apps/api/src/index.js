@@ -1906,6 +1906,162 @@ app.patch('/api/vinculos/:id', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
+// ---------- Centro de Inteligencia (solo directivo) ----------
+// Agregación de indicadores reales de la plataforma
+app.get('/api/centro', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const hoy = new Date().toISOString().slice(0, 10);
+    let desde = req.query.desde || `${hoy.slice(0, 7)}-01`;
+    let hasta = req.query.hasta || hoy;
+    const profId = req.query.profesional || null;
+    const packId = req.query.paquete || null;
+
+    const [{ data: pacientes }, { data: paquetes }, { data: perfiles }, { data: visitas }, { data: notas }, { data: valoraciones }, { data: pagos }, { data: alertas }] = await Promise.all([
+      supabase.from('pacientes').select('*'),
+      supabase.from('paquetes').select('*'),
+      supabase.from('perfiles').select('id, nombre, email, rol, profesion, especialidad, estado_laboral'),
+      supabase.from('visitas').select('id, paciente_id, trabajador_id, fecha, hora_programada, estado, llegada_at, salida_at, duracion_estimada_min, disciplina, pacientes(paquete_id)').gte('fecha', desde).lte('fecha', hasta).limit(2000),
+      supabase.from('notas_atencion').select('id, paciente_id, trabajador_id, especialidad, incidencias, revisado, created_at').gte('created_at', desde).lte('created_at', hasta + 'T23:59:59').limit(2000),
+      supabase.from('valoraciones').select('id, paciente_id, escala, puntaje, fecha, evaluador_nombre').gte('fecha', desde).lte('fecha', hasta).limit(1000),
+      supabase.from('pagos').select('*').gte('fecha', desde).lte('fecha', hasta).limit(1000),
+      supabase.from('alertas_semaforo').select('id, paciente_id, color, revisado').eq('revisado', false).limit(500)
+    ]);
+
+    // --- Pacientes ---
+    const packMap = new Map((paquetes || []).map((k) => [k.id, k]));
+    const pacFiltrados = (pacientes || []).filter((p) => (!packId || p.paquete_id === packId));
+    const porEstado = {};
+    for (const p of pacFiltrados) porEstado[p.estado || 'sin_estado'] = (porEstado[p.estado || 'sin_estado'] || 0) + 1;
+    const activos = pacFiltrados.filter((p) => ['en_proceso', 'pendiente'].includes(p.estado)).length;
+    const nuevos = pacFiltrados.filter((p) => p.created_at && String(p.created_at).slice(0, 10) >= desde && String(p.created_at).slice(0, 10) <= hasta).length;
+    const porPaquete = {};
+    for (const p of pacFiltrados) {
+      const pk = p.paquete_id ? packMap.get(p.paquete_id) : null;
+      const nom = pk?.nombre || 'Sin paquete';
+      porPaquete[nom] = (porPaquete[nom] || 0) + 1;
+    }
+    // Paquetes próximos a vencer: fecha_contratacion + 30 días dentro de los próximos 15 días (o vencido sin renovar)
+    const proximosVencer = pacFiltrados.filter((p) => {
+      if (!p.fecha_contratacion) return false;
+      const venc = new Date(p.fecha_contratacion); venc.setDate(venc.getDate() + 30);
+      const dias = (venc - new Date()) / 86400000;
+      return dias <= 15;
+    }).map((p) => ({ id: p.id, nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim(), fecha_contratacion: p.fecha_contratacion, dias_restantes: Math.ceil((new Date(new Date(p.fecha_contratacion).getTime() + 30 * 86400000) - new Date()) / 86400000) }));
+
+    // --- Empleados ---
+    const trabajadores = (perfiles || []).filter((p) => ['staff', 'cuidador'].includes(p.rol));
+    const empActivos = trabajadores.filter((t) => !['inactivo', 'suspendido'].includes(t.estado_laboral)).length;
+    const visitasFiltradas = (visitas || []).filter((v) => (!profId || v.trabajador_id === profId) && (!packId || v.pacientes?.paquete_id === packId));
+    const porProf = {};
+    for (const v of visitasFiltradas) {
+      const t = (perfiles || []).find((x) => x.id === v.trabajador_id);
+      const nom = t?.nombre || t?.email || 'Sin asignar';
+      porProf[nom] = (porProf[nom] || 0) + 1;
+    }
+    const vProgramadas = visitasFiltradas.filter((v) => v.estado === 'programada').length;
+    const vCompletadas = visitasFiltradas.filter((v) => ['finalizada', 'completada', 'en_curso'].includes(v.estado)).length;
+    const vConLlegada = visitasFiltradas.filter((v) => v.llegada_at).length;
+    const cumplimiento = vCompletadas ? Math.round((vConLlegada / vCompletadas) * 100) : null;
+    const incidenciasNotas = (notas || []).filter((n) => n.incidencias && String(n.incidencias).trim()).length;
+    const incidenciasGps = visitasFiltradas.filter((v) => v.estado === 'no_show').length;
+
+    // --- Financiero ---
+    const pagosFiltrados = (pagos || []).filter((p) => (!packId || packMap.get(pacientes?.find((x) => x.id === p.paciente_id)?.paquete_id)?.id === packId));
+    const cobrado = pagosFiltrados.filter((p) => p.estado === 'pagado').reduce((s, p) => s + Number(p.monto || 0), 0);
+    const pendiente = pagosFiltrados.filter((p) => p.estado === 'pendiente').reduce((s, p) => s + Number(p.monto || 0), 0);
+    const proyeccion = pacFiltrados.filter((p) => ['en_proceso', 'pendiente'].includes(p.estado) && p.paquete_id).reduce((s, p) => s + Number(packMap.get(p.paquete_id)?.precio || 0), 0);
+    const cobradoPorPaquete = {};
+    for (const p of pagosFiltrados.filter((x) => x.estado === 'pagado')) {
+      const pac = pacientes?.find((x) => x.id === p.paciente_id);
+      const nom = pac?.paquete_id ? packMap.get(pac.paquete_id)?.nombre || 'Sin paquete' : 'Sin paquete';
+      cobradoPorPaquete[nom] = (cobradoPorPaquete[nom] || 0) + Number(p.monto || 0);
+    }
+
+    // --- Calidad ---
+    const notasRango = (notas || []).length;
+    const valoracionesRango = (valoraciones || []).length;
+    const pacientesConSeguimiento = new Set((notas || []).map((n) => n.paciente_id)).size;
+    const alertasAbiertas = (alertas || []).filter((a) => a.color === 'rojo').length;
+    const alertasAmarillas = (alertas || []).filter((a) => a.color === 'amarillo').length;
+
+    // --- Tendencias: visitas por día en el rango ---
+    const visitasPorDia = {};
+    for (const v of visitasFiltradas) visitasPorDia[v.fecha] = (visitasPorDia[v.fecha] || 0) + 1;
+    // Tendencia mensual últimos 6 meses
+    const meses = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      meses.push(d.toISOString().slice(0, 7));
+    }
+    const { data: visitas6m } = await supabase.from('visitas').select('fecha, estado').gte('fecha', `${meses[0]}-01`);
+    const { data: pagos6m } = await supabase.from('pagos').select('fecha, monto, estado').gte('fecha', `${meses[0]}-01`);
+    const tendencia = meses.map((m) => ({
+      mes: m,
+      visitas: (visitas6m || []).filter((v) => String(v.fecha).startsWith(m)).length,
+      ingresos: (pagos6m || []).filter((p) => p.estado === 'pagado' && String(p.fecha).startsWith(m)).reduce((s, p) => s + Number(p.monto || 0), 0)
+    }));
+
+    res.json({
+      periodo: { desde, hasta },
+      pacientes: { total: pacFiltrados.length, activos, inactivos: pacFiltrados.length - activos, nuevos, porEstado, porPaquete, proximosVencer },
+      empleados: { total: trabajadores.length, activos: empActivos, porProfesional: porProf, programadas: vProgramadas, completadas: vCompletadas, cumplimiento_horarios: cumplimiento, incidencias: incidenciasNotas + incidenciasGps },
+      finanzas: { cobrado, pendiente, proyeccion, cobradoPorPaquete, totalPagos: pagosFiltrados.length },
+      calidad: { valoraciones: valoracionesRango, notas: notasRango, pacientesConSeguimiento, alertasRojas: alertasAbiertas, alertasAmarillas },
+      visitasPorDia, tendencia,
+      filtros: { profesionales: trabajadores.map((t) => ({ id: t.id, nombre: t.nombre || t.email })), paquetes: (paquetes || []).map((k) => ({ id: k.id, nombre: k.nombre })) }
+    });
+  } catch (e) {
+    console.error('GET /api/centro:', e);
+    res.status(500).json({ error: 'Error al generar indicadores' });
+  }
+});
+
+// ---------- Pagos ----------
+app.get('/api/pagos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    let q = supabase.from('pagos').select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre, precio))').order('fecha', { ascending: false }).limit(300);
+    if (req.query.desde) q = q.gte('fecha', req.query.desde);
+    if (req.query.hasta) q = q.lte('fecha', req.query.hasta);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ pagos: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error al obtener pagos' }); }
+});
+
+app.post('/api/pagos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { paciente_id, monto, fecha, metodo, estado, periodo, notas } = req.body || {};
+    if (!paciente_id || monto == null) return res.status(400).json({ error: 'paciente_id y monto son requeridos' });
+    const { data, error } = await supabase.from('pagos').insert({
+      paciente_id, monto: Number(monto), fecha: fecha || new Date().toISOString().slice(0, 10),
+      metodo: metodo || null, estado: estado === 'pendiente' ? 'pendiente' : 'pagado',
+      periodo: periodo || null, notas: notas ? String(notas).slice(0, 500) : null,
+      registrado_por: req.user.email
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json({ pago: data });
+  } catch (e) { console.error('POST pago:', e); res.status(500).json({ error: 'Error al registrar pago' }); }
+});
+
+app.patch('/api/pagos/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { estado, monto, metodo, notas } = req.body || {};
+    const update = {};
+    if (estado && ['pagado', 'pendiente'].includes(estado)) update.estado = estado;
+    if (monto != null) update.monto = Number(monto);
+    if (metodo !== undefined) update.metodo = metodo || null;
+    if (notas !== undefined) update.notas = notas ? String(notas).slice(0, 500) : null;
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('pagos').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ pago: data });
+  } catch (e) { res.status(500).json({ error: 'Error al actualizar pago' }); }
+});
+
 // ---------- Valoración gerontológica (escalas validadas) ----------
 async function puedeAtenderPaciente(req, paciente_id) {
   if (isAdmin(req)) return true;
