@@ -508,6 +508,7 @@
  <div>
  <span class="badge">{perfil.email} · {etiquetaRol(perfil.rol)}</span>
  {#if stats}<span class="badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
+ <a class="ghost link" href="/agenda">Agenda</a>
  <a class="ghost link" href="/visitas">Visitas</a>
  <a class="ghost link" href="/mapa">Mapa</a>
  <a class="ghost link" href="/personal">Personal</a>
@@ -642,6 +643,7 @@
  <span class="badge">{perfil.email} · empleado</span>
  <a class="ghost link" href="/mapa-pacientes">Mapa</a>
  <a class="ghost link" href="/mis-pacientes">Mis pacientes</a>
+ <a class="ghost link" href="/agenda">Mi agenda</a>
  <a class="ghost link" href="/registrar">Registrar visita</a>
  <a class="ghost link" href="/visitas">Mis visitas</a>
  <button class="ghost" onclick={logout}>Salir</button>

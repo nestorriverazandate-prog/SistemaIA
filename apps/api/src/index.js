@@ -1132,7 +1132,7 @@ app.post('/api/visitas', requireUser, async (req, res) => {
     return res.status(403).json({ error: 'Solo admin/staff puede asignar visitas' });
   }
   try {
-    const { paciente_id, trabajador_id, fecha, hora_programada, radio_m, duracion_estimada_min } = req.body || {};
+    const { paciente_id, trabajador_id, fecha, hora_programada, radio_m, duracion_estimada_min, disciplina } = req.body || {};
     if (!paciente_id || !fecha) return res.status(400).json({ error: 'paciente_id y fecha son requeridos' });
     if (!(await trabajadorAsignable(trabajador_id))) {
       return res.status(400).json({ error: 'El trabajador está suspendido o inactivo; actualiza su estado laboral primero' });
@@ -1143,13 +1143,39 @@ app.post('/api/visitas', requireUser, async (req, res) => {
     if (!pac) return res.status(404).json({ error: 'Paciente no encontrado' });
     if (pac.lat == null || pac.lng == null) return res.status(400).json({ error: 'El paciente no tiene ubicación georreferenciada' });
 
+    const dur = Number(duracion_estimada_min) || 60;
+    // Detección de conflictos de horario: mismo trabajador, mismo día, franjas superpuestas
+    if (trabajador_id && hora_programada) {
+      const a = hhmmAMin(hora_programada);
+      if (a != null) {
+        const b = a + dur;
+        const { data: delDia } = await supabase
+          .from('visitas')
+          .select('id, hora_programada, duracion_estimada_min, pacientes(nombre, apellido)')
+          .eq('trabajador_id', trabajador_id).eq('fecha', fecha).neq('estado', 'cancelada');
+        const conflictos = (delDia || []).filter((c) => {
+          const ci = hhmmAMin(c.hora_programada);
+          if (ci == null) return false;
+          const cj = ci + (Number(c.duracion_estimada_min) || 60);
+          return a < cj && ci < b;
+        });
+        if (conflictos.length && !req.body.confirmar_conflicto) {
+          return res.status(409).json({
+            error: `Conflicto de horario: ${conflictos.length} visita(s) se traslapan`,
+            conflictos: conflictos.map((c) => ({ id: c.id, hora: c.hora_programada, paciente: `${c.pacientes?.nombre || ''} ${c.pacientes?.apellido || ''}`.trim() }))
+          });
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from('visitas')
       .insert({
         paciente_id, trabajador_id: trabajador_id || null, fecha,
         hora_programada: hora_programada || null,
         radio_m: radio_m || 50,
-        duracion_estimada_min: duracion_estimada_min || 60,
+        duracion_estimada_min: dur,
+        disciplina: disciplina ? String(disciplina).slice(0, 80) : null,
         estado: 'programada', creado_por: req.user.id
       })
       .select()
@@ -1174,6 +1200,8 @@ app.get('/api/visitas', requireUser, async (req, res) => {
       .order('hora_programada', { ascending: true })
       .limit(300);
     if (req.query.fecha) q = q.eq('fecha', req.query.fecha);
+    if (req.query.desde) q = q.gte('fecha', req.query.desde);
+    if (req.query.hasta) q = q.lte('fecha', req.query.hasta);
     if (req.query.estado) q = q.eq('estado', req.query.estado);
     if (!puedeVerTodas(req)) q = q.eq('trabajador_id', req.user.id);
     else if (req.query.trabajador_id) q = q.eq('trabajador_id', req.query.trabajador_id);
@@ -1205,7 +1233,7 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     const esPropia = v.trabajador_id === req.user.id;
     if (!esPropia && !puedeVerTodas(req)) return res.status(403).json({ error: 'Sin permiso' });
 
-    const { estado, hora_programada, trabajador_id, duracion_estimada_min, trabajador_estado, salida_manual } = req.body || {};
+    const { estado, hora_programada, trabajador_id, duracion_estimada_min, trabajador_estado, salida_manual, fecha, disciplina } = req.body || {};
     const update = {};
     // Corrección del directivo: registrar salida olvidada (queda evidencia en eventos)
     if (salida_manual && puedeVerTodas(req)) {
@@ -1217,9 +1245,12 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
     if (trabajador_estado && TRABAJADOR_ESTADOS.includes(trabajador_estado) && (puedeVerTodas(req) || esPropia)) {
       if (await checkTrabajadorEstado()) update.trabajador_estado = trabajador_estado;
     }
-    if (estado && ['programada', 'cancelada'].includes(estado) && (puedeVerTodas(req) || esPropia)) update.estado = estado;
+    const estadosOk = puedeVerTodas(req) ? ['programada', 'cancelada', 'finalizada', 'no_show'] : ['programada', 'cancelada', 'finalizada'];
+    if (estado && estadosOk.includes(estado) && (puedeVerTodas(req) || esPropia)) update.estado = estado;
     if (puedeVerTodas(req)) {
       if (hora_programada) update.hora_programada = hora_programada;
+      if (fecha) update.fecha = fecha;
+      if (disciplina !== undefined) update.disciplina = disciplina ? String(disciplina).slice(0, 80) : null;
       if (trabajador_id !== undefined) {
         if (!(await trabajadorAsignable(trabajador_id || null))) {
           return res.status(400).json({ error: 'El trabajador está suspendido o inactivo; actualiza su estado laboral primero' });
@@ -1242,6 +1273,26 @@ app.patch('/api/visitas/:id', requireUser, async (req, res) => {
   } catch (e) {
     console.error('PATCH visita:', e);
     res.status(500).json({ error: 'Error al actualizar visita' });
+  }
+});
+
+// El empleado solicita reprogramar su visita (el directivo decide)
+app.post('/api/visitas/:id/solicitar-reprogramacion', requireUser, async (req, res) => {
+  try {
+    const { data: v } = await supabase.from('visitas').select('*, pacientes(nombre, apellido)').eq('id', req.params.id).maybeSingle();
+    if (!v) return res.status(404).json({ error: 'Visita no encontrada' });
+    if (v.trabajador_id !== req.user.id && !puedeVerTodas(req)) return res.status(403).json({ error: 'Solo el trabajador asignado' });
+    const { nueva_fecha, nueva_hora, motivo } = req.body || {};
+    if (!nueva_fecha) return res.status(400).json({ error: 'Indica la nueva fecha' });
+    await logEvento(v.id, 'reprogramacion_solicitada', { por: req.user.email, nueva_fecha, nueva_hora: nueva_hora || null, motivo: motivo || null });
+    const quien = (await supabase.from('perfiles').select('nombre').eq('id', req.user.id).maybeSingle()).data?.nombre || req.user.email;
+    await notifyAdmins('reprogramacion',
+      `${quien} solicita reprogramar la visita del ${v.fecha}${v.hora_programada ? ' ' + v.hora_programada : ''} (${v.pacientes?.nombre || ''} ${v.pacientes?.apellido || ''}) → ${nueva_fecha}${nueva_hora ? ' ' + nueva_hora : ''}${motivo ? ' — ' + motivo : ''}`,
+      v, { nueva_fecha, nueva_hora: nueva_hora || null, motivo: motivo || null, solicitante: req.user.email });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('solicitar-reprogramacion:', e);
+    res.status(500).json({ error: 'Error al enviar solicitud' });
   }
 });
 
@@ -1875,12 +1926,34 @@ async function notifyFamiliares(paciente_id, tipo, mensaje) {
   } catch (e) { console.error('notifyFamiliares:', e); }
 }
 
+// Recordatorio diario: visitas programadas para mañana → aviso al trabajador y familiares
+async function recordarVisitasManana() {
+  const manana = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const { data: visitas } = await supabase
+    .from('visitas')
+    .select('*, pacientes(nombre, apellido)')
+    .eq('fecha', manana).eq('estado', 'programada');
+  for (const v of visitas || []) {
+    const pac = `${v.pacientes?.nombre || ''} ${v.pacientes?.apellido || ''}`.trim() || 'paciente';
+    const msg = `Recordatorio: visita mañana ${manana}${v.hora_programada ? ' a las ' + v.hora_programada : ''} — ${pac}`;
+    if (v.trabajador_id) {
+      const { data: prev } = await supabase.from('notificaciones').select('id').eq('destinatario_id', v.trabajador_id).eq('tipo', 'recordatorio_visita').contains('datos', { visita_id: v.id }).limit(1);
+      if (!prev?.length) {
+        await supabase.from('notificaciones').insert({ destinatario_id: v.trabajador_id, tipo: 'recordatorio_visita', mensaje: msg, visita_id: v.id, datos: { visita_id: v.id, fecha: manana } });
+      }
+    }
+    await notifyFamiliares(v.paciente_id, 'recordatorio_visita', `Recordatorio: visita de ${pac} mañana ${manana}${v.hora_programada ? ' a las ' + v.hora_programada : ''}`);
+  }
+  if (visitas?.length) broadcast({ tipo: 'notificacion', datos: { tipo: 'recordatorio' } });
+}
+
 app.post('/api/cron/monitor', async (req, res) => {
   if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   await monitorVisitas();
   await revisarSemaforos().catch((e) => console.error('revisarSemaforos:', e));
+  await recordarVisitasManana().catch((e) => console.error('recordarVisitasManana:', e));
   res.json({ ok: true });
 });
 
@@ -2049,6 +2122,11 @@ app.get('/api/seguimiento', requireUser, async (req, res) => {
 
 // Revisión del directivo: marcar revisado / comentar / solicitar corrección
 // Auditoría del expediente multidisciplinario
+function hhmmAMin(h) {
+  const m = String(h || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
 async function auditarExpediente(paciente_id, nota_id, actor, accion, detalle = {}) {
   try {
    await supabase.from('auditoria_expediente').insert({ paciente_id, nota_id: nota_id || null, actor, accion, detalle });

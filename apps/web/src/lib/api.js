@@ -88,6 +88,7 @@ export const api = {
   pingVisita: (id, lat, lng, trabajador_estado) =>
     request(`/api/visitas/${id}/ping`, { method: 'POST', body: JSON.stringify({ lat, lng, trabajador_estado }) }),
   historial: (params = '') => request(`/api/visitas/historial${params}`),
+  solicitarReprogramacion: (id, body) => request(`/api/visitas/${id}/solicitar-reprogramacion`, { method: 'POST', body: JSON.stringify(body) }),
   exportarVisitas: (params = '') => requestBlob(`/api/visitas/export${params}`),
   dashboard: () => request('/api/dashboard'),
   notificaciones: (noLeidas) => request(`/api/notificaciones${noLeidas ? '?no_leidas=1' : ''}`),

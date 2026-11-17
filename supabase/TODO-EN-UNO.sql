@@ -235,6 +235,7 @@ alter table public.notas_atencion add column if not exists cerrada boolean not n
 alter table public.notas_atencion add column if not exists cerrada_at timestamptz;
 alter table public.notas_atencion add column if not exists cerrada_por text;
 alter table public.pacientes add column if not exists plan_atencion text;
+alter table public.visitas add column if not exists disciplina text;
 create table if not exists public.auditoria_expediente (
   id uuid primary key default gen_random_uuid(),
   paciente_id uuid not null references public.pacientes (id) on delete cascade,
