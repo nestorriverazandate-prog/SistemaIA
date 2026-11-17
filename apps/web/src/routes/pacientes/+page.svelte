@@ -124,6 +124,7 @@
  let expLoading = $state(false);
  let expFoto = $state('');
  let paquetes = $state([]);
+ let trabajadoresExp = $state([]);
  let expForm = $state({});
  let expMsg = $state('');
  let expErr = $state('');
@@ -158,6 +159,7 @@
   expLoading = true;
   try {
    if (!paquetes.length) paquetes = (await api.paquetes()).paquetes || [];
+   if (!trabajadoresExp.length) trabajadoresExp = ((await api.trabajadores().catch(() => ({ trabajadores: [] }))).trabajadores || []).filter((t) => t.estado !== 'suspendido' && t.estado !== 'inactivo');
    const [exped, foto] = await Promise.all([
     api.expedientePaciente(p.id),
     api.fotoPaciente(p.id).then((r) => r.url).catch(() => '')
@@ -613,7 +615,15 @@
      <input bind:value={expForm.frecuencia_visitas} placeholder="Ej: 3 veces por semana, 1 h por sesión" />
     </label>
     <label class="exp-label">Profesional / responsable asignado
-     <input bind:value={expForm.profesional_asignado} placeholder="Ej: Lic. María Pérez — Enfermería" />
+     <select bind:value={expForm.profesional_asignado}>
+      <option value="">— Seleccionar empleado —</option>
+      {#each trabajadoresExp as t}
+       <option value={t.nombre ? `${t.nombre}${t.profesion ? ' — ' + t.profesion : ''}` : t.email}>{t.nombre || t.email}{t.profesion ? ' — ' + t.profesion : ''}</option>
+      {/each}
+      {#if expForm.profesional_asignado && !trabajadoresExp.some((t) => expForm.profesional_asignado === (t.nombre ? `${t.nombre}${t.profesion ? ' — ' + t.profesion : ''}` : t.email))}
+       <option value={expForm.profesional_asignado}>{expForm.profesional_asignado} (actual)</option>
+      {/if}
+     </select>
     </label>
     <label class="exp-label">Diagnóstico / motivo de atención
      <textarea bind:value={expForm.diagnostico} rows="2"></textarea>
