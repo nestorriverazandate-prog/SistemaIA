@@ -148,6 +148,12 @@ export const api = {
   generarEncuestasPeriodo: (periodo) => request('/api/encuestas-periodo/generar', { method: 'POST', body: JSON.stringify({ periodo }) }),
   accionEncuestaPeriodo: (id, body) => request(`/api/encuestas-periodo/${id}/accion`, { method: 'PATCH', body: JSON.stringify(body) }),
   estadisticasEncuestas: () => request('/api/encuestas-periodo/estadisticas'),
+  observatorioResumen: () => request('/api/observatorio/resumen'),
+  obsGuardarZona: (body) => request('/api/observatorio/zona', { method: 'POST', body: JSON.stringify(body) }),
+  obsGuardarServicio: (body) => request('/api/observatorio/servicio', { method: 'POST', body: JSON.stringify(body) }),
+  obsGuardarNecesidad: (body) => request('/api/observatorio/necesidad', { method: 'POST', body: JSON.stringify(body) }),
+  obsGuardarDato: (body) => request('/api/observatorio/dato', { method: 'POST', body: JSON.stringify(body) }),
+  obsEliminar: (tabla, id) => request(`/api/observatorio/${tabla}/${id}`, { method: 'DELETE' }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

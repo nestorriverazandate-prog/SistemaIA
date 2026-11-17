@@ -416,3 +416,59 @@ alter table public.encuestas_periodicas enable row level security;
 -- Encuestas por profesional (si la tabla ya existía sin trabajador_id):
 alter table public.encuestas_periodicas add column if not exists trabajador_id uuid references public.perfiles (id) on delete set null;
 alter table public.encuestas_periodicas drop constraint if exists encuestas_periodicas_paciente_id_familiar_id_periodo_key;
+
+-- ================= OBSERVATORIO GERONTOLÓGICO =================
+-- Zona/colonia del paciente (texto libre, se agrupa en el observatorio)
+alter table public.pacientes add column if not exists zona text;
+
+-- Datos demográficos oficiales (INEGI/CONAPO/COESPO) — se registran con fuente
+create table if not exists public.observatorio_datos (
+  id uuid primary key default gen_random_uuid(),
+  indicador text not null,
+  grupo text,
+  valor numeric,
+  unidad text,
+  fuente text,
+  anio integer,
+  updated_at timestz not null default now()
+);
+alter table public.observatorio_datos enable row level security;
+
+-- Zonas/sectores territoriales conocidos (centro del polígono o punto representativo)
+create table if not exists public.observatorio_zonas (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,
+  tipo text default 'colonia',
+  lat double precision,
+  lng double precision,
+  descripcion text,
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.observatorio_zonas enable row level security;
+
+-- Servicios externos de atención al adulto mayor (hospitales, centros de salud, etc.)
+create table if not exists public.observatorio_servicios (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  tipo text,
+  zona text,
+  direccion text,
+  lat double precision,
+  lng double precision,
+  fuente text,
+  created_at timestamptz not null default now()
+);
+alter table public.observatorio_servicios enable row level security;
+
+-- Necesidades gerontológicas identificadas por zona (con fuente: oficial/estudio/interna)
+create table if not exists public.observatorio_necesidades (
+  id uuid primary key default gen_random_uuid(),
+  zona text,
+  tipo text not null,
+  nivel integer check (nivel between 1 and 5),
+  fuente text,
+  nota text,
+  created_at timestamptz not null default now()
+);
+alter table public.observatorio_necesidades enable row level security;

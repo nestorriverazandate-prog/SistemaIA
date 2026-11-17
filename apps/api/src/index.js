@@ -662,9 +662,9 @@ app.get('/api/perfiles/:id/historial', requireUser, async (req, res) => {
 });
 
 // ---------- Pacientes ----------
-const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion'];
+const PATIENT_FIELDS = ['nombre', 'apellido', 'cedula', 'telefono', 'email', 'direccion', 'tipo_servicio', 'descripcion', 'fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'qr_token', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion', 'zona'];
 // Columnas opcionales: si la BD aún no las tiene, se reintenta sin ellas
-const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion'];
+const PATIENT_OPTIONALES = ['fecha_inicio', 'fecha_termino', 'contacto_emergencia', 'telefono_emergencia', 'paquete_id', 'frecuencia_visitas', 'profesional_asignado', 'diagnostico', 'antecedentes', 'objetivos', 'plan_atencion', 'zona'];
 // Campos de fecha: '' del formulario se guarda como null
 const CAMPOS_FECHA = new Set(['fecha_solicitud', 'fecha_inicio', 'fecha_termino', 'fecha_contratacion', 'fecha_nacimiento']);
 
@@ -2497,6 +2497,171 @@ app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => 
       por_aspecto: aspectoProm, por_paciente: pacienteProm, por_trabajador: trabajadorProm, tendencia, bajas
     });
   } catch (e) { res.status(500).json({ error: 'Error en estadísticas' }); }
+});
+
+
+// ---------- Observatorio Gerontológico de Ciudad Juárez (solo directivo) ----------
+const TIPOS_SERVICIO_OBS = ['hospital','centro_salud','rehabilitacion','residencia','comunitario','otro'];
+const TIPOS_NECESIDAD = ['acompanamiento','terapia_fisica','cognitiva','psicologica','nutricional','cuidados_personales','prevencion_caidas','dependencia','capacitacion_familiares'];
+
+app.get('/api/observatorio/resumen', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const [pacs, visitas, servicios, necesidades, datos, zonas] = await Promise.all([
+      supabase.from('pacientes').select('id, nombre, apellido, zona, tipo_servicio, paquete_id, lat, lng, estado').limit(2000),
+      supabase.from('visitas').select('paciente_id, trabajador_id, fecha, estado').gte('fecha', new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)).limit(10000),
+      supabase.from('observatorio_servicios').select('*').limit(1000),
+      supabase.from('observatorio_necesidades').select('*').limit(2000),
+      supabase.from('observatorio_datos').select('*').order('indicador'),
+      supabase.from('observatorio_zonas').select('*').eq('activo', true).limit(500)
+    ]);
+    const pacientes = pacs.data || [];
+    const visitasL = visitas.data || [];
+    const servL = servicios.data || [];
+    const necL = necesidades.data || [];
+    const datosL = datos.data || [];
+    const zonasL = zonas.data || [];
+
+    // Agrupar pacientes por zona (texto) — datos agregados, sin domicilios exactos
+    const porZona = {};
+    const zonaDe = (p) => (p.zona || '').trim() || 'Sin zona asignada';
+    for (const p of pacientes) {
+      const z = zonaDe(p);
+      porZona[z] = porZona[z] || { zona: z, pacientes: 0, con_coords: 0, lat_sum: 0, lng_sum: 0, servicios: {}, frecuencia: {} };
+      porZona[z].pacientes++;
+      if (p.lat && p.lng) { porZona[z].con_coords++; porZona[z].lat_sum += p.lat; porZona[z].lng_sum += p.lng; }
+    }
+    // Visitas por zona (vía paciente) y profesionales
+    const pacZona = Object.fromEntries(pacientes.map((p) => [p.id, zonaDe(p)]));
+    const profsPorZona = {};
+    for (const v of visitasL) {
+      const z = pacZona[v.paciente_id];
+      if (!z) continue;
+      profsPorZona[z] = profsPorZona[z] || new Set();
+      if (v.trabajador_id) profsPorZona[z].add(v.trabajador_id);
+    }
+    // Servicios/paquetes más demandados por zona
+    for (const p of pacientes) {
+      const z = zonaDe(p);
+      const serv = p.paquete_id ? `paquete:${p.paquete_id}` : (p.tipo_servicio || 'Sin especificar');
+      porZona[z].servicios[serv] = (porZona[z].servicios[serv] || 0) + 1;
+    }
+    // Necesidades por zona
+    const necPorZona = {};
+    for (const n of necL) { const z = (n.zona || '').trim() || 'General'; necPorZona[z] = necPorZona[z] || {}; necPorZona[z][n.tipo] = (necPorZona[z][n.tipo] || 0) + 1; }
+    // Zonas del catálogo con coordenada
+    const zonaCoords = {};
+    for (const zn of zonasL) zonaCoords[zn.nombre.toLowerCase()] = zn;
+
+    const zonasArr = Object.values(porZona).map((z) => {
+      const cat = zonaCoords[z.zona.toLowerCase()];
+      const lat = cat?.lat ?? (z.con_coords ? z.lat_sum / z.con_coords : null);
+      const lng = cat?.lng ?? (z.con_coords ? z.lng_sum / z.con_coords : null);
+      const nServ = servL.filter((s) => (s.zona || '').trim().toLowerCase() === z.zona.toLowerCase()).length;
+      return {
+        ...z,
+        lat, lng,
+        profesionales: profsPorZona[z.zona]?.size || 0,
+        servicios_externos: nServ,
+        necesidades: necPorZona[z.zona] || {},
+        top_servicios: Object.entries(z.servicios).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      };
+    }).sort((a, b) => b.pacientes - a.pacientes);
+
+    // Oportunidades de expansión: zonas con pacientes pero pocos servicios externos,
+    // o zonas del catálogo sin cobertura de la agencia
+    const zonasSinCobertura = zonasL.filter((z) => !pacientes.some((p) => (p.zona || '').trim().toLowerCase() === z.nombre.toLowerCase()))
+      .map((z) => ({ nombre: z.nombre, tipo: z.tipo, lat: z.lat, lng: z.lng, cobertura: 'sin_cobertura' }));
+    const oportunidades = zonasArr
+      .filter((z) => z.pacientes > 0)
+      .map((z) => ({ ...z, score: z.pacientes * 2 + z.profesionales + (z.servicios_externos === 0 ? 3 : 0) }))
+      .sort((a, b) => b.score - a.score).slice(0, 10);
+
+    res.json({
+      generado: new Date().toISOString(),
+      kpis: {
+        pacientes: pacientes.length,
+        pacientes_con_zona: pacientes.filter((p) => (p.zona || '').trim()).length,
+        zonas_con_cobertura: zonasArr.filter((z) => z.pacientes > 0).length,
+        zonas_sin_cobertura: zonasSinCobertura.length,
+        servicios_externos: servL.length,
+        necesidades_registradas: necL.length,
+        datos_demograficos: datosL.length
+      },
+      zonas: zonasArr,
+      zonas_sin_cobertura: zonasSinCobertura,
+      oportunidades,
+      servicios: servL,
+      necesidades: necL,
+      datos_demograficos: datosL,
+      catalogo_zonas: zonasL,
+      tipos_servicio: TIPOS_SERVICIO_OBS,
+      tipos_necesidad: TIPOS_NECESIDAD
+    });
+  } catch (e) { console.error('observatorio resumen:', e); res.status(500).json({ error: 'Error del observatorio' }); }
+});
+
+// CRUD ligero del observatorio (solo directivo)
+app.post('/api/observatorio/zona', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, nombre, tipo, lat, lng, descripcion } = req.body || {};
+    const payload = { nombre: String(nombre || '').trim(), tipo: tipo || 'colonia', lat: lat ?? null, lng: lng ?? null, descripcion: descripcion || null };
+    if (!payload.nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    const q = id ? supabase.from('observatorio_zonas').update(payload).eq('id', id) : supabase.from('observatorio_zonas').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ zona: data });
+  } catch (e) { res.status(500).json({ error: e.message || 'Error' }); }
+});
+
+app.post('/api/observatorio/servicio', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, nombre, tipo, zona, direccion, lat, lng, fuente } = req.body || {};
+    const payload = { nombre: String(nombre || '').trim(), tipo: tipo || null, zona: zona || null, direccion: direccion || null, lat: lat ?? null, lng: lng ?? null, fuente: fuente || null };
+    if (!payload.nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    const q = id ? supabase.from('observatorio_servicios').update(payload).eq('id', id) : supabase.from('observatorio_servicios').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ servicio: data });
+  } catch (e) { res.status(500).json({ error: e.message || 'Error' }); }
+});
+
+app.post('/api/observatorio/necesidad', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, zona, tipo, nivel, fuente, nota } = req.body || {};
+    if (!tipo) return res.status(400).json({ error: 'Tipo de necesidad requerido' });
+    const payload = { zona: zona || null, tipo, nivel: nivel ? Number(nivel) : null, fuente: fuente || null, nota: nota || null };
+    const q = id ? supabase.from('observatorio_necesidades').update(payload).eq('id', id) : supabase.from('observatorio_necesidades').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ necesidad: data });
+  } catch (e) { res.status(500).json({ error: e.message || 'Error' }); }
+});
+
+app.post('/api/observatorio/dato', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { id, indicador, grupo, valor, unidad, fuente, anio } = req.body || {};
+    if (!indicador || valor == null) return res.status(400).json({ error: 'Indicador y valor requeridos' });
+    const payload = { indicador: String(indicador).trim(), grupo: grupo || null, valor: Number(valor), unidad: unidad || null, fuente: fuente || null, anio: anio ? Number(anio) : null };
+    const q = id ? supabase.from('observatorio_datos').update(payload).eq('id', id) : supabase.from('observatorio_datos').insert(payload);
+    const { data, error } = await q.select().single();
+    if (error) throw error;
+    res.json({ dato: data });
+  } catch (e) { res.status(500).json({ error: e.message || 'Error' }); }
+});
+
+app.delete('/api/observatorio/:tabla/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  const permitidas = { servicios: 'observatorio_servicios', necesidades: 'observatorio_necesidades', datos: 'observatorio_datos', zonas: 'observatorio_zonas' };
+  const tabla = permitidas[req.params.tabla];
+  if (!tabla) return res.status(400).json({ error: 'Tabla no válida' });
+  const { error } = await supabase.from(tabla).delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 // ---------- Valoración gerontológica (escalas validadas) ----------
