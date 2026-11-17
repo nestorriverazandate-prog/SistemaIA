@@ -1906,6 +1906,64 @@ app.patch('/api/vinculos/:id', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
+// ---------- Valoración gerontológica (escalas validadas) ----------
+async function puedeAtenderPaciente(req, paciente_id) {
+  if (isAdmin(req)) return true;
+  if (!['staff', 'cuidador', 'familiar'].includes(req.user?.perfil?.rol)) return false;
+  const { data: v } = await supabase.from('visitas').select('id, estado').eq('paciente_id', paciente_id).eq('trabajador_id', req.user.id).limit(5);
+  return (v || []).some((x) => !['cancelada', 'no_show'].includes(x.estado));
+}
+
+app.get('/api/pacientes/:id/valoraciones', requireUser, async (req, res) => {
+  try {
+    const { data: p } = await supabase.from('pacientes').select('id').eq('id', req.params.id).maybeSingle();
+    if (!p) return res.status(404).json({ error: 'Paciente no encontrado' });
+    if (!(await puedeAtenderPaciente(req, p.id))) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.from('valoraciones')
+      .select('*').eq('paciente_id', p.id).order('fecha', { ascending: false }).limit(200);
+    if (error) throw error;
+    res.json({ valoraciones: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error al obtener valoraciones' }); }
+});
+
+app.post('/api/pacientes/:id/valoraciones', requireUser, async (req, res) => {
+  try {
+    const { data: p } = await supabase.from('pacientes').select('id, nombre, apellido').eq('id', req.params.id).maybeSingle();
+    if (!p) return res.status(404).json({ error: 'Paciente no encontrado' });
+    if (!(await puedeAtenderPaciente(req, p.id))) return res.status(403).json({ error: 'Solo personal asignado o directivo' });
+    const { escala, fecha, respuestas, puntaje, interpretacion, notas } = req.body || {};
+    if (!escala || puntaje == null) return res.status(400).json({ error: 'escala y puntaje son requeridos' });
+    const { data: prof } = await supabase.from('perfiles').select('nombre, profesion, especialidad').eq('id', req.user.id).maybeSingle();
+    const { data, error } = await supabase.from('valoraciones').insert({
+      paciente_id: p.id,
+      evaluador_id: req.user.id,
+      evaluador_nombre: prof?.nombre || req.user.email,
+      evaluador_disciplina: prof?.especialidad || prof?.profesion || null,
+      escala: String(escala).slice(0, 60),
+      fecha: fecha || new Date().toISOString().slice(0, 10),
+      respuestas: respuestas || {},
+      puntaje: Number(puntaje),
+      interpretacion: interpretacion ? String(interpretacion).slice(0, 500) : null,
+      notas: notas ? String(notas).slice(0, 2000) : null
+    }).select().single();
+    if (error) throw error;
+    await auditarExpediente(p.id, null, req.user.email, 'valoracion_registrada', { escala: data.escala, puntaje: data.puntaje });
+    res.status(201).json({ valoracion: data });
+  } catch (e) { console.error('POST valoraciones:', e); res.status(500).json({ error: 'Error al guardar valoración' }); }
+});
+
+app.delete('/api/valoraciones/:id', requireUser, async (req, res) => {
+  try {
+    const { data: v } = await supabase.from('valoraciones').select('*').eq('id', req.params.id).maybeSingle();
+    if (!v) return res.status(404).json({ error: 'No encontrada' });
+    if (!isAdmin(req) && v.evaluador_id !== req.user.id) return res.status(403).json({ error: 'Solo el evaluador o el directivo' });
+    const { error } = await supabase.from('valoraciones').delete().eq('id', v.id);
+    if (error) throw error;
+    await auditarExpediente(v.paciente_id, null, req.user.email, 'valoracion_eliminada', { escala: v.escala, puntaje: v.puntaje });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error al eliminar' }); }
+});
+
 // Mensaje del familiar a la administración → notificación al directivo
 app.post('/api/mensajes', requireUser, async (req, res) => {
   try {

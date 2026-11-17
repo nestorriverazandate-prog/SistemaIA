@@ -125,6 +125,9 @@ export const api = {
   desvincularFamiliar: (id, activo = false) => request(`/api/vinculos/${id}`, { method: 'PATCH', body: JSON.stringify({ activo }) }),
   enviarMensaje: (texto) => request('/api/mensajes', { method: 'POST', body: JSON.stringify({ texto }) }),
   cerrarNota: (id) => request(`/api/notas/${id}/cerrar`, { method: 'POST' }),
+  valoraciones: (pacienteId) => request(`/api/pacientes/${pacienteId}/valoraciones`),
+  crearValoracion: (pacienteId, body) => request(`/api/pacientes/${pacienteId}/valoraciones`, { method: 'POST', body: JSON.stringify(body) }),
+  eliminarValoracion: (id) => request(`/api/valoraciones/${id}`, { method: 'DELETE' }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
   evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
 };

@@ -1,6 +1,7 @@
 <script>
  import { onMount, tick } from 'svelte';
  import { api, getToken, setToken } from '$lib/api';
+ import Valoraciones from '$lib/Valoraciones.svelte';
 
  let perfil = $state(null);
  let loading = $state(true);
@@ -128,6 +129,7 @@
   </div>
   <div class="tabs">
    <button class:active={tab === 'evolucion'} onclick={() => tab = 'evolucion'}>Evolución ({exp.notas.length})</button>
+   <button class:active={tab === 'valoracion'} onclick={() => tab = 'valoracion'}>Valoración</button>
    <button class:active={tab === 'plan'} onclick={() => tab = 'plan'}>Plan de atención</button>
    {#if esAdmin}<button class:active={tab === 'auditoria'} onclick={() => tab = 'auditoria'}>Auditoría ({(exp.auditoria || []).length})</button>{/if}
   </div>
@@ -175,6 +177,12 @@
     </div>
    {:else}<p class="muted">Sin información registrada</p>{/each}
   </div>
+ </section>
+ {/if}
+
+ {#if tab === 'valoracion'}
+ <section class="card">
+  <Valoraciones pacienteId={exp.paciente.id} />
  </section>
  {/if}
 

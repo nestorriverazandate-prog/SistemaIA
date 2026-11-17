@@ -236,6 +236,23 @@ alter table public.notas_atencion add column if not exists cerrada_at timestampt
 alter table public.notas_atencion add column if not exists cerrada_por text;
 alter table public.pacientes add column if not exists plan_atencion text;
 alter table public.visitas add column if not exists disciplina text;
+-- Valoración gerontológica: escalas validadas por paciente
+create table if not exists public.valoraciones (
+  id uuid primary key default gen_random_uuid(),
+  paciente_id uuid not null references public.pacientes (id) on delete cascade,
+  evaluador_id uuid references public.perfiles (id) on delete set null,
+  evaluador_nombre text,
+  evaluador_disciplina text,
+  escala text not null,
+  fecha date not null default current_date,
+  respuestas jsonb,
+  puntaje numeric,
+  interpretacion text,
+  notas text,
+  created_at timestamptz not null default now()
+);
+create index if not exists valoraciones_pac_idx on public.valoraciones (paciente_id);
+alter table public.valoraciones enable row level security;
 create table if not exists public.auditoria_expediente (
   id uuid primary key default gen_random_uuid(),
   paciente_id uuid not null references public.pacientes (id) on delete cascade,
