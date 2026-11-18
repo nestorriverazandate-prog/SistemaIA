@@ -663,3 +663,38 @@ alter table public.academia_unidad_intentos enable row level security;
 
 alter table public.academia_inscripciones add column if not exists unidades_aprobadas jsonb not null default '[]'::jsonb;
 alter table public.academia_inscripciones add column if not exists examen_final_estado text not null default 'bloqueado' check (examen_final_estado in ('bloqueado','disponible','aprobado','reprobado'));
+
+-- ================= BOTÓN DE PÁNICO / EMERGENCIAS =================
+create table if not exists public.emergencias (
+  id uuid primary key default gen_random_uuid(),
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  paciente_id uuid references public.pacientes (id) on delete set null,
+  visita_id uuid,
+  tipo text not null default 'panico',
+  silenciosa boolean not null default false,
+  estado text not null default 'activa' check (estado in ('activa','confirmada','atendida','cancelada')),
+  lat double precision, lng double precision,
+  servicio text,
+  contacto_respaldo text,
+  confirmada_at timestamptz,
+  atendida_at timestamptz,
+  cancelada_at timestamptz,
+  motivo_cancelacion text,
+  acciones text,
+  created_at timestamptz not null default now()
+);
+create index if not exists emerg_emp_idx on public.emergencias (empleado_id);
+create index if not exists emerg_est_idx on public.emergencias (estado);
+alter table public.emergencias enable row level security;
+
+create table if not exists public.emergencia_eventos (
+  id uuid primary key default gen_random_uuid(),
+  emergencia_id uuid not null references public.emergencias (id) on delete cascade,
+  tipo text not null,
+  detalle text,
+  created_at timestamptz not null default now()
+);
+alter table public.emergencia_eventos enable row level security;
+
+alter table public.perfiles add column if not exists contacto_emergencia_nombre text;
+alter table public.perfiles add column if not exists contacto_emergencia_telefono text;

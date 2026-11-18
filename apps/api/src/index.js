@@ -4330,6 +4330,162 @@ app.post('/api/academia/admin/sembrar-contenido', requireUser, async (req, res) 
   } catch (e) { console.error('sembrar-contenido:', e); res.status(500).json({ error: e.message || 'Error' }); }
 });
 
+// ---------- Botón de Pánico y Centro de Emergencias ----------
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM = process.env.TWILIO_FROM;
+const DIRECTIVO_TEL = process.env.DIRECTIVO_TELEFONO || '';
+
+async function llamarYMensaje(emergenciaId, emp) {
+  // Llamada + SMS de respaldo vía Twilio si está configurado; si no, queda registrado
+  const tel = DIRECTIVO_TEL || emp?.contacto_emergencia_telefono || emp?.contactos_emergencia?.[0]?.telefono || emp?.telefono || '';
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM || !tel) {
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: 'No configurado: faltan credenciales Twilio o teléfono del directivo (TWILIO_*, DIRECTIVO_TELEFONO)' }).catch(() => {});
+    return { llamada: 'no_configurada' };
+  }
+  const auth = 'Basic ' + Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
+  const msg = `🚨 EMERGENCIA AGI — ${emp?.nombre || 'Empleado'} activó botón de pánico. Revisa el Centro de Emergencias.`;
+  const resultados = {};
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+      method: 'POST', headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ To: tel, From: TWILIO_FROM, Body: msg })
+    });
+    resultados.sms = r.ok ? 'enviado' : `error ${r.status}`;
+  } catch { resultados.sms = 'error_red'; }
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Calls.json`, {
+      method: 'POST', headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ To: tel, From: TWILIO_FROM, Twiml: '<Response><Say language="es-MX">Alerta de emergencia. Un trabajador activó el botón de pánico. Revisa la plataforma.</Say></Response>' })
+    });
+    resultados.llamada = r.ok ? 'iniciada' : `error ${r.status}`;
+  } catch { resultados.llamada = 'error_red'; }
+  await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: JSON.stringify(resultados) }).catch(() => {});
+  return resultados;
+}
+
+// Activar botón de pánico (cualquier usuario autenticado)
+app.post('/api/emergencias', requireUser, async (req, res) => {
+  try {
+    const { lat, lng, paciente_id, visita_id, servicio, silenciosa, contacto_respaldo } = req.body || {};
+    const emp = req.user.perfil || {};
+    let paciente = null;
+    if (paciente_id) {
+      const { data: p } = await supabase.from('pacientes').select('id, nombre, apellido, direccion').eq('id', paciente_id).maybeSingle();
+      paciente = p;
+    }
+    const { data: em, error } = await supabase.from('emergencias').insert({
+      empleado_id: req.user.id, paciente_id: paciente_id || null, visita_id: visita_id || null,
+      tipo: 'panico', silenciosa: !!silenciosa,
+      lat: lat ?? null, lng: lng ?? null, servicio: servicio || null,
+      contacto_respaldo: contacto_respaldo || emp.contacto_emergencia_telefono || emp.contactos_emergencia?.[0]?.telefono || emp.telefono || null
+    }).select().single();
+    if (error) throw error;
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'activacion', detalle: `Activada por ${emp.nombre || req.user.email} ${silenciosa ? '(modo silencioso)' : ''}` }).catch(() => {});
+    // Notificar a TODOS los admins en tiempo real
+    const { data: admins } = await supabase.from('perfiles').select('id, nombre').eq('rol', 'admin').eq('estado', 'aprobado');
+    for (const a of admins || []) {
+      await supabase.from('notificaciones').insert({
+        destinatario_id: a.id, tipo: 'emergencia',
+        mensaje: '🚨 BOTÓN DE PÁNICO — ' + (emp.nombre || req.user.email) + (paciente ? ' está con el paciente ' + paciente.nombre + ' ' + paciente.apellido : '') + '. Revisa el Centro de Emergencias.',
+        datos: { emergencia_id: em.id, empleado_id: req.user.id }
+      }).catch(() => {});
+    }
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: em.id } });
+    llamarYMensaje(em.id, emp).catch(() => {});
+    // Escalación: si en 30s sigue activa sin confirmación → segunda alerta + reintento de llamada
+    setTimeout(async () => {
+      try {
+        const { data: actual } = await supabase.from('emergencias').select('estado').eq('id', em.id).maybeSingle();
+        if (!actual || actual.estado !== 'activa') return;
+        const { data: admins2 } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+        for (const a of admins2 || []) {
+          await supabase.from('notificaciones').insert({
+            destinatario_id: a.id, tipo: 'emergencia',
+            mensaje: '⚠️ EMERGENCIA SIN CONFIRMAR — ' + (emp.nombre || req.user.email) + ' activó pánico hace 30s sin confirmación. Responde de inmediato.',
+            datos: { emergencia_id: em.id, escalada: true }
+          }).catch(() => {});
+        }
+        await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'escalada', detalle: 'Sin confirmación tras 30s — reintento de llamada y SMS' }).catch(() => {});
+        llamarYMensaje(em.id, emp).catch(() => {});
+        broadcast({ tipo: 'emergencia', datos: { emergencia_id: em.id, escalada: true } });
+      } catch {}
+    }, 30000);
+    res.json({ emergencia: em, paciente });
+  } catch (e) { console.error('emergencia:', e); res.status(500).json({ error: 'Error al activar emergencia' }); }
+});
+
+// Actualizar GPS durante emergencia activa (el empleado comparte su ubicación)
+app.post('/api/emergencias/:id/ubicacion', requireUser, async (req, res) => {
+  try {
+    const { lat, lng } = req.body || {};
+    const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
+    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'Emergencia no activa' });
+    if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    await supabase.from('emergencias').update({ lat, lng }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'gps', detalle: `${lat},${lng}` }).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Cancelar activación accidental (con motivo)
+app.post('/api/emergencias/:id/cancelar', requireUser, async (req, res) => {
+  try {
+    const { motivo } = req.body || {};
+    const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
+    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
+    if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    await supabase.from('emergencias').update({ estado: 'cancelada', cancelada_at: new Date().toISOString(), motivo_cancelacion: motivo || 'No especificado' }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'cancelacion', detalle: motivo || 'Sin motivo' }).catch(() => {});
+    const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+    for (const a of admins || []) await supabase.from('notificaciones').insert({ destinatario_id: a.id, tipo: 'emergencia', mensaje: `Emergencia cancelada por el empleado. Motivo: ${motivo || 'no especificado'}.`, datos: { emergencia_id: req.params.id } }).catch(() => {});
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, cancelada: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Confirmar recepción (solo directivo)
+app.post('/api/emergencias/:id/confirmar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: em } = await supabase.from('emergencias').select('estado').eq('id', req.params.id).maybeSingle();
+    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
+    await supabase.from('emergencias').update({ estado: 'confirmada', confirmada_at: new Date().toISOString() }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'confirmacion', detalle: `Confirmada por ${req.user.perfil?.nombre || req.user.email}` }).catch(() => {});
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, confirmada: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Marcar atendida con acciones registradas (solo directivo)
+app.post('/api/emergencias/:id/atender', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { acciones, contacto_realizado } = req.body || {};
+    const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em || !['activa', 'confirmada'].includes(em.estado)) return res.status(404).json({ error: 'No se puede atender' });
+    await supabase.from('emergencias').update({ estado: 'atendida', atendida_at: new Date().toISOString(), acciones: acciones || null }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'atencion', detalle: `${acciones || ''} | Contacto: ${contacto_realizado || 'no registrado'}` }).catch(() => {});
+    if (em.empleado_id) await supabase.from('notificaciones').insert({ destinatario_id: em.empleado_id, tipo: 'emergencia', mensaje: 'Tu emergencia fue atendida por el directivo. Revisa el Centro de Emergencias.', datos: { emergencia_id: req.params.id } }).catch(() => {});
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, atendida: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Listar emergencias: admin ve todas; empleado solo las suyas
+app.get('/api/emergencias', requireUser, async (req, res) => {
+  try {
+    const admin = isAdmin(req);
+    let q = supabase.from('emergencias').select('*, perfiles!emergencias_empleado_id_fkey(id, nombre, email, telefono, profesion, foto_path), pacientes(id, nombre, apellido, direccion)')
+      .order('created_at', { ascending: false }).limit(200);
+    if (!admin) q = q.eq('empleado_id', req.user.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    const { data: eventos } = await supabase.from('emergencia_eventos').select('*').order('created_at', { ascending: true }).limit(2000);
+    res.json({ emergencias: data || [], eventos: eventos || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
 export default app;
 
 // Solo escuchar en ejecución local (node src/index.js); en Vercel se exporta como función

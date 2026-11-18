@@ -506,6 +506,7 @@
  </div>
  </div>
  <div>
+ <a class="ghost link" href="/emergencias">🚨 Emergencias</a>
  <a class="ghost link" href="/centro">Centro de Inteligencia</a>
  <a class="ghost link" href="/evaluaciones">Evaluaciones</a>
  <a class="ghost link" href="/encuestas">Encuestas</a>
