@@ -2526,7 +2526,7 @@ async function inscripcionDe(cursoId, empleadoId) {
 }
 
 async function notificarAcademia(empleadoId, mensaje, datos) {
-  await supabase.from('notificaciones').insert({ destinatario_id: empleadoId, tipo: 'academia', mensaje, datos: datos || {} }).catch(() => {});
+  await supabase.from('notificaciones').insert({ destinatario_id: empleadoId, tipo: 'academia', mensaje, datos: datos || {} });
 }
 
 // Catálogo público para empleados (cursos publicados)
@@ -2634,7 +2634,7 @@ app.post('/api/academia/evaluar', requireUser, async (req, res) => {
     // Constancia automática al aprobar
     if (aprobado && !ins.completado_at) {
       const folio = `AGE-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900000) + 100000)}`;
-      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: nota100, horas: curso.horas }).catch(() => {});
+      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: nota100, horas: curso.horas });
       await notificarAcademia(req.user.id, `¡Felicidades! Aprobaste el curso "${curso.titulo}" con ${nota100}%. Tu constancia está disponible en Mi Formación.`, { curso_id });
       broadcast({ tipo: 'academia', datos: { curso_id, empleado_id: req.user.id } });
     }
@@ -3908,7 +3908,7 @@ app.post('/api/academia/examen-final', requireUser, async (req, res) => {
     });
     if (aprobado) {
       const folio = `AGE-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900000) + 100000)}`;
-      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: r.calificacion, horas: curso.horas }).catch(() => {});
+      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: r.calificacion, horas: curso.horas });
       await notificarAcademia(req.user.id, `¡Felicidades! Concluiste y aprobaste "${curso.titulo}" con ${r.calificacion}%. Tu constancia está en Mi Formación.`, { curso_id });
       broadcast({ tipo: 'academia', datos: { curso_id, empleado_id: req.user.id, final: true } });
     }
@@ -4351,7 +4351,7 @@ async function llamarYMensaje(emergenciaId, emp) {
   // Llamada + SMS de respaldo vía Twilio si está configurado; si no, queda registrado
   const tel = aE164(DIRECTIVO_TEL || emp?.contacto_emergencia_telefono || emp?.contactos_emergencia?.[0]?.telefono || emp?.telefono || '');
   if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM || !tel) {
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: 'No configurado: faltan credenciales Twilio o teléfono del directivo (TWILIO_*, DIRECTIVO_TELEFONO)' }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: 'No configurado: faltan credenciales Twilio o teléfono del directivo (TWILIO_*, DIRECTIVO_TELEFONO)' });
     return { llamada: 'no_configurada' };
   }
   const resultados = {};
@@ -4368,7 +4368,7 @@ async function llamarYMensaje(emergenciaId, emp) {
     });
     resultados.llamada = 'iniciada';
   } catch (e) { resultados.llamada = 'error: ' + (e.message || e.code || 'desconocido'); }
-  await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: JSON.stringify(resultados) }).catch(() => {});
+  await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: JSON.stringify(resultados) });
   return resultados;
 }
 
@@ -4389,7 +4389,7 @@ app.post('/api/emergencias', requireUser, async (req, res) => {
       contacto_respaldo: contacto_respaldo || emp.contacto_emergencia_telefono || emp.contactos_emergencia?.[0]?.telefono || emp.telefono || null
     }).select().single();
     if (error) throw error;
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'activacion', detalle: `Activada por ${emp.nombre || req.user.email} ${silenciosa ? '(modo silencioso)' : ''}` }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'activacion', detalle: `Activada por ${emp.nombre || req.user.email} ${silenciosa ? '(modo silencioso)' : ''}` });
     // Notificar a TODOS los admins en tiempo real
     const { data: admins } = await supabase.from('perfiles').select('id, nombre').eq('rol', 'admin').eq('estado', 'aprobado');
     for (const a of admins || []) {
@@ -4397,7 +4397,7 @@ app.post('/api/emergencias', requireUser, async (req, res) => {
         destinatario_id: a.id, tipo: 'emergencia',
         mensaje: '🚨 BOTÓN DE PÁNICO — ' + (emp.nombre || req.user.email) + (paciente ? ' está con el paciente ' + paciente.nombre + ' ' + paciente.apellido : '') + '. Revisa el Centro de Emergencias.',
         datos: { emergencia_id: em.id, empleado_id: req.user.id }
-      }).catch(() => {});
+      });
     }
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: em.id } });
     llamarYMensaje(em.id, emp).catch(() => {});
@@ -4412,9 +4412,9 @@ app.post('/api/emergencias', requireUser, async (req, res) => {
             destinatario_id: a.id, tipo: 'emergencia',
             mensaje: '⚠️ EMERGENCIA SIN CONFIRMAR — ' + (emp.nombre || req.user.email) + ' activó pánico hace 30s sin confirmación. Responde de inmediato.',
             datos: { emergencia_id: em.id, escalada: true }
-          }).catch(() => {});
+          });
         }
-        await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'escalada', detalle: 'Sin confirmación tras 30s — reintento de llamada y SMS' }).catch(() => {});
+        await supabase.from('emergencia_eventos').insert({ emergencia_id: em.id, tipo: 'escalada', detalle: 'Sin confirmación tras 30s — reintento de llamada y SMS' });
         llamarYMensaje(em.id, emp).catch(() => {});
         broadcast({ tipo: 'emergencia', datos: { emergencia_id: em.id, escalada: true } });
       } catch {}
@@ -4431,7 +4431,7 @@ app.post('/api/emergencias/:id/ubicacion', requireUser, async (req, res) => {
     if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'Emergencia no activa' });
     if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
     await supabase.from('emergencias').update({ lat, lng }).eq('id', req.params.id);
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'gps', detalle: `${lat},${lng}` }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'gps', detalle: `${lat},${lng}` });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
@@ -4444,9 +4444,9 @@ app.post('/api/emergencias/:id/cancelar', requireUser, async (req, res) => {
     if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
     if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
     await supabase.from('emergencias').update({ estado: 'cancelada', cancelada_at: new Date().toISOString(), motivo_cancelacion: motivo || 'No especificado' }).eq('id', req.params.id);
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'cancelacion', detalle: motivo || 'Sin motivo' }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'cancelacion', detalle: motivo || 'Sin motivo' });
     const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
-    for (const a of admins || []) await supabase.from('notificaciones').insert({ destinatario_id: a.id, tipo: 'emergencia', mensaje: `Emergencia cancelada por el empleado. Motivo: ${motivo || 'no especificado'}.`, datos: { emergencia_id: req.params.id } }).catch(() => {});
+    for (const a of admins || []) await supabase.from('notificaciones').insert({ destinatario_id: a.id, tipo: 'emergencia', mensaje: `Emergencia cancelada por el empleado. Motivo: ${motivo || 'no especificado'}.`, datos: { emergencia_id: req.params.id } });
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, cancelada: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4459,7 +4459,7 @@ app.post('/api/emergencias/:id/confirmar', requireUser, async (req, res) => {
     const { data: em } = await supabase.from('emergencias').select('estado').eq('id', req.params.id).maybeSingle();
     if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
     await supabase.from('emergencias').update({ estado: 'confirmada', confirmada_at: new Date().toISOString() }).eq('id', req.params.id);
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'confirmacion', detalle: `Confirmada por ${req.user.perfil?.nombre || req.user.email}` }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'confirmacion', detalle: `Confirmada por ${req.user.perfil?.nombre || req.user.email}` });
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, confirmada: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4473,8 +4473,8 @@ app.post('/api/emergencias/:id/atender', requireUser, async (req, res) => {
     const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
     if (!em || !['activa', 'confirmada'].includes(em.estado)) return res.status(404).json({ error: 'No se puede atender' });
     await supabase.from('emergencias').update({ estado: 'atendida', atendida_at: new Date().toISOString(), acciones: acciones || null }).eq('id', req.params.id);
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'atencion', detalle: `${acciones || ''} | Contacto: ${contacto_realizado || 'no registrado'}` }).catch(() => {});
-    if (em.empleado_id) await supabase.from('notificaciones').insert({ destinatario_id: em.empleado_id, tipo: 'emergencia', mensaje: 'Tu emergencia fue atendida por el directivo. Revisa el Centro de Emergencias.', datos: { emergencia_id: req.params.id } }).catch(() => {});
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'atencion', detalle: `${acciones || ''} | Contacto: ${contacto_realizado || 'no registrado'}` });
+    if (em.empleado_id) await supabase.from('notificaciones').insert({ destinatario_id: em.empleado_id, tipo: 'emergencia', mensaje: 'Tu emergencia fue atendida por el directivo. Revisa el Centro de Emergencias.', datos: { emergencia_id: req.params.id } });
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, atendida: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4484,13 +4484,23 @@ app.post('/api/emergencias/:id/atender', requireUser, async (req, res) => {
 app.get('/api/emergencias', requireUser, async (req, res) => {
   try {
     const admin = isAdmin(req);
-    let q = supabase.from('emergencias').select('*, perfiles!emergencias_empleado_id_fkey(id, nombre, email, telefono, profesion, foto_path), pacientes(id, nombre, apellido, direccion)')
+    let q = supabase.from('emergencias').select('*')
       .order('created_at', { ascending: false }).limit(200);
     if (!admin) q = q.eq('empleado_id', req.user.id);
     const { data, error } = await q;
     if (error) throw error;
+    // Adjuntar datos del empleado y paciente (evita depender del nombre del FK en Supabase)
+    const lista = data || [];
+    const empIds = [...new Set(lista.map((e) => e.empleado_id).filter(Boolean))];
+    const pacIds = [...new Set(lista.map((e) => e.paciente_id).filter(Boolean))];
+    const { data: perfiles } = empIds.length ? await supabase.from('perfiles').select('id, nombre, email, telefono, profesion, foto_path').in('id', empIds) : { data: [] };
+    const { data: pacientes } = pacIds.length ? await supabase.from('pacientes').select('id, nombre, apellido, direccion').in('id', pacIds) : { data: [] };
+    const pMap = Object.fromEntries((perfiles || []).map((p) => [p.id, p]));
+    const paMap = Object.fromEntries((pacientes || []).map((p) => [p.id, p]));
+    for (const e of lista) { e.perfiles = pMap[e.empleado_id] || null; e.pacientes = paMap[e.paciente_id] || null; }
+    const data2 = lista;
     const { data: eventos } = await supabase.from('emergencia_eventos').select('*').order('created_at', { ascending: true }).limit(2000);
-    res.json({ emergencias: data || [], eventos: eventos || [] });
+    res.json({ emergencias: data2, eventos: eventos || [] });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
