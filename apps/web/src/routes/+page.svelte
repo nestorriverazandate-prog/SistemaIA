@@ -506,8 +506,6 @@
  </div>
  </div>
  <div>
- <span class="badge">{perfil.email} · {etiquetaRol(perfil.rol)}</span>
- {#if stats}<span class="badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
  <a class="ghost link" href="/centro">Centro de Inteligencia</a>
  <a class="ghost link" href="/evaluaciones">Evaluaciones</a>
  <a class="ghost link" href="/encuestas">Encuestas</a>
@@ -632,6 +630,10 @@
 
  </section>
  {/if}
+ <div class="user-corner">
+  <span class="badge corner-badge">{perfil.email} · {etiquetaRol(perfil.rol)}</span>
+  {#if stats}<span class="badge corner-badge">Worker {stats.worker} · {stats.requests} req</span>{/if}
+ </div>
  </main>
 
 {:else}
@@ -750,6 +752,8 @@
  header div:not(.brand) { display: flex; gap:.5rem; align-items: center; flex-wrap: wrap; }
 .logo-login { display: block; width: 96px; height: 96px; object-fit: cover; margin: 0 auto 1rem; border-radius: 16px; background: #f2eee2; padding: 6px; }
 .agency-login { text-align: center; font-size: .78rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: oklch(0.7 0.1 78); margin: -0.5rem 0 1rem; }
+.user-corner { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .4rem; align-items: flex-end; z-index: 90; }
+.corner-badge { box-shadow: 0 2px 10px rgba(0,0,0,.25); }
 .badge { font-size:.75rem; background: oklch(0.42 0.068 218); color: #f2eee2; padding:.3rem.6rem; border-radius: 999px; }
 .stats-mini { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
 .stats-mini .badge { background: oklch(0.66 0.055 145); color: oklch(0.27 0.035 225); }
