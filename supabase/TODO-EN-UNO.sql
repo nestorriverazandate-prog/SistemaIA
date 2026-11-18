@@ -626,3 +626,14 @@ create table if not exists public.academia_asistencia (
   unique (evento_id, empleado_id)
 );
 alter table public.academia_asistencia enable row level security;
+
+-- ================= ACADEMIA: catálogo institucional (campos extendidos) =================
+alter table public.academia_cursos add column if not exists modalidad text not null default 'virtual';
+alter table public.academia_cursos add column if not exists etiqueta text;
+alter table public.academia_cursos add column if not exists profesiones jsonb not null default '[]'::jsonb;
+alter table public.academia_cursos add column if not exists justificacion text;
+alter table public.academia_cursos add column if not exists objetivos text;
+alter table public.academia_cursos add column if not exists temario text;
+alter table public.academia_cursos add column if not exists bibliografia text;
+alter table public.academia_cursos add column if not exists revisor text;
+alter table public.academia_cursos add column if not exists vigencia_anios integer not null default 2;

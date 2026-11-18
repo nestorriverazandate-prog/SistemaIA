@@ -23,26 +23,39 @@
   let adminSeguimiento = $state([]);
   let adminEvaluaciones = $state([]);
   let adminEventos = $state(null);
-  let formCurso = $state({ titulo: '', area: 'gerontologia', nivel: 'basico', horas: 1, descripcion: '', obligatorio: false, estado: 'publicado', video_url: '', material_url: '', instructor: '', max_intentos: 3, calificacion_minima: 70 });
+  let formCurso = $state({ titulo: '', area: 'gerontologia', nivel: 'basico', horas: 1, descripcion: '', obligatorio: false, estado: 'publicado', video_url: '', material_url: '', instructor: '', max_intentos: 3, calificacion_minima: 70, modalidad: 'virtual', etiqueta: '', profesiones: '', justificacion: '', objetivos: '', temario: '', bibliografia: '', revisor: '', vigencia_anios: 2 });
   let editandoCurso = $state(null);
   let nuevaUnidad = $state({ titulo: '', contenido: '', orden: 1 });
   let nuevoProtocolo = $state({ nombre: '', version: '', descripcion: '', contenido_url: '', responsable: '' });
   let nuevoEvento = $state({ nombre: '', fecha: '', hora: '', duracion: '', instructor: '', modalidad: 'virtual', ubicacion: '', descripcion: '' });
   let asignando = $state({ curso_id: '', modo: 'todos', empleado_id: '', filtro: '' });
+  let busqueda = $state('');
+  let filtroNivel = $state('');
+  let filtroModalidad = $state('');
+  let filtroEstado = $state('');
+  let filtroOblig = $state('');
+  let areaSel = $state('');
   let msg = $state('');
   let comp = $state({ empleado_id: '', competencia: '', dimension: 'conocimientos', nivel: 3, notas: '' });
 
   const AREAS = {
-    gerontologia: { nombre: 'Gerontología y envejecimiento', icono: '🌱' },
-    cuidados: { nombre: 'Cuidados integrales', icono: '🤝' },
-    enfermedades: { nombre: 'Enfermedades y síndromes geriátricos', icono: '🩺' },
-    salud_mental: { nombre: 'Salud mental y estimulación', icono: '🧠' },
-    fisioterapia: { nombre: 'Fisioterapia y rehabilitación', icono: '🏃' },
-    etica: { nombre: 'Ética y profesionalismo', icono: '⚖️' },
-    emergencias: { nombre: 'Emergencias y primeros auxilios', icono: '🚨' }
+    gerontologia: { nombre: 'Gerontología y envejecimiento', icono: '🌱', desc: 'Ciencia del envejecimiento, valoración integral y atención centrada en la persona' },
+    cuidados: { nombre: 'Cuidados básicos e integrales', icono: '🤝', desc: 'Higiene, movilización, alimentación y cuidado de la vida diaria' },
+    enfermedades: { nombre: 'Enfermedades y patologías geriátricas', icono: '🩺', desc: 'Manejo de condiciones crónicas y síndromes del adulto mayor' },
+    fisioterapia: { nombre: 'Fisioterapia y rehabilitación', icono: '🏃', desc: 'Ejercicio terapéutico, marcha, equilibrio y funcionalidad' },
+    salud_mental: { nombre: 'Salud mental y estimulación', icono: '🧠', desc: 'Bienestar emocional, cognición y acompañamiento' },
+    nutricion: { nombre: 'Nutrición y alimentación geriátrica', icono: '🍎', desc: 'Requerimientos, evaluación y seguridad alimentaria' },
+    enfermeria: { nombre: 'Enfermería y atención clínica', icono: '💉', desc: 'Valoración, vigilancia, medicamentos y cuidados clínicos' },
+    emergencias: { nombre: 'Primeros auxilios y emergencias', icono: '🚨', desc: 'RCP, DEA, reconocimiento de urgencias y activación' },
+    paliativos: { nombre: 'Cuidados paliativos', icono: '🕊️', desc: 'Confort, dignidad y acompañamiento al final de la vida' },
+    etica: { nombre: 'Ética y trato humanizado', icono: '⚖️', desc: 'Derechos, confidencialidad y prevención del maltrato' },
+    cuidador: { nombre: 'Desarrollo del cuidador', icono: '💪', desc: 'Perfil profesional, autocuidado y habilidades del cuidador' },
+    administracion: { nombre: 'Administración y gestión', icono: '📋', desc: 'Gestión de servicios, calidad, riesgos y expedientes' },
+    talleres: { nombre: 'Talleres prácticos', icono: '🛠️', desc: 'Simulación presencial: movilización, RCP, cognición y caídas' }
   };
   const NIVELES = { basico: 'Básico', intermedio: 'Intermedio', avanzado: 'Avanzado' };
   const ESTADOS = { asignado: 'Asignado', en_proceso: 'En proceso', aprobado: 'Aprobado', reprobado: 'Reprobado' };
+  const ETIQUETAS = { formacion_basica: 'Formación básica', especializacion: 'Especialización', actualizacion: 'Actualización', obligatoria: 'Obligatoria', taller: 'Taller práctico' };
 
   const esAdmin = $derived(perfil?.rol === 'admin');
   const esStaff = $derived(['staff', 'cuidador', 'admin'].includes(perfil?.rol));
@@ -116,7 +129,7 @@
     const payload = { ...formCurso, horas: Number(formCurso.horas) || 1 };
     if (editandoCurso) payload.id = editandoCurso.id;
     await api.raw('/api/academia/admin/curso', { method: 'POST', body: JSON.stringify(payload) });
-    editandoCurso = null; formCurso = { titulo: '', area: 'gerontologia', nivel: 'basico', horas: 1, descripcion: '', obligatorio: false, estado: 'publicado', video_url: '', material_url: '', instructor: '', max_intentos: 3, calificacion_minima: 70 };
+    editandoCurso = null; formCurso = { titulo: '', area: 'gerontologia', nivel: 'basico', horas: 1, descripcion: '', obligatorio: false, estado: 'publicado', video_url: '', material_url: '', instructor: '', max_intentos: 3, calificacion_minima: 70, modalidad: 'virtual', etiqueta: '', profesiones: '', justificacion: '', objetivos: '', temario: '', bibliografia: '', revisor: '', vigencia_anios: 2 };
     await cargar(); msg = 'Curso guardado';
   }
   function editarCurso(c) { editandoCurso = c; formCurso = { ...c }; subTab = 'cursos'; }
@@ -289,36 +302,92 @@
 
     <!-- ================= CATÁLOGO ================= -->
     {#if tab === 'catalogo'}
-      <div class="catalogo">
-        {#each catalogo.areas as area (area)}
-          {@const cursosArea = catalogo.cursos.filter(c => c.area === area)}
-          {#if cursosArea.length}
-            <div class="area-bloque">
-              <h2 class="area-titulo">{AREAS[area]?.icono} {areaNombre(area)}</h2>
-              <div class="cursos-grid">
-                {#each cursosArea as curso (curso.id)}
-                  <div class="curso-card catalogo-card">
-                    <div class="curso-top">
-                      <span class="badge-nivel nivel-{curso.nivel}">{NIVELES[curso.nivel]}</span>
-                      {#if curso.obligatorio}<span class="badge-obligatorio">OBLIGATORIO</span>{/if}
-                      {#if curso.mi_estado}<span class="estado {curso.mi_estado}">{ESTADOS[curso.mi_estado]}</span>{/if}
-                    </div>
-                    <h3>{curso.titulo}</h3>
-                    <p class="curso-meta">{curso.horas}h · {curso.instructor || 'Academia AGI'}</p>
-                    {#if curso.descripcion}<p class="desc">{curso.descripcion}</p>{/if}
-                    <div class="btns">
-                      <button class="btn-mini" onclick={() => abrirCurso(curso)}>Ver curso</button>
-                      {#if !curso.mi_estado || curso.mi_estado === 'reprobado'}
-                        <button class="btn-mini btn-ok" onclick={() => inscribir(curso.id)}>Inscribirme</button>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
+      {@const cursosFiltrados = catalogo.cursos.filter(c =>
+        (!areaSel || c.area === areaSel) &&
+        (!busqueda || (c.titulo||'').toLowerCase().includes(busqueda.toLowerCase()) || (c.descripcion||'').toLowerCase().includes(busqueda.toLowerCase())) &&
+        (!filtroNivel || c.nivel === filtroNivel) &&
+        (!filtroModalidad || c.modalidad === filtroModalidad) &&
+        (!filtroOblig || (filtroOblig === 'oblig' ? c.obligatorio : !c.obligatorio)) &&
+        (!filtroEstado || (filtroEstado === 'asignado' ? c.mi_estado : filtroEstado === 'disponible' ? !c.mi_estado || c.mi_estado === 'reprobado' : c.mi_estado === 'aprobado'))
+      )}
+      {@const recomendados = catalogo.cursos.filter(c =>
+        !c.mi_estado && (c.profesiones || []).some(p => String(perfil?.profesion || perfil?.puesto || '').toLowerCase().includes(String(p).toLowerCase()))
+      ).slice(0, 6)}
+
+      {#if !areaSel}
+        <div class="buscador-bar">
+          <input class="buscador" placeholder="🔍 Buscar curso por nombre, tema o especialidad..." bind:value={busqueda} />
+          <select bind:value={filtroNivel}><option value="">Todos los niveles</option><option value="basico">Básico</option><option value="intermedio">Intermedio</option><option value="avanzado">Avanzado</option></select>
+          <select bind:value={filtroModalidad}><option value="">Toda modalidad</option><option value="virtual">Virtual</option><option value="presencial">Presencial</option><option value="hibrido">Híbrido</option></select>
+          <select bind:value={filtroOblig}><option value="">Obligatorios y opcionales</option><option value="oblig">Solo obligatorios</option><option value="opcional">Solo opcionales</option></select>
+          <select bind:value={filtroEstado}><option value="">Todos los estados</option><option value="disponible">Disponibles</option><option value="asignado">Asignados</option><option value="aprobado">Concluidos</option></select>
+        </div>
+
+        {#if recomendados.length && !busqueda}
+          <div class="card recomendados">
+            <h3>🎯 Recomendados para ti{perfil?.profesion ? ' — ' + perfil.profesion : ''}</h3>
+            <div class="cursos-grid">
+              {#each recomendados as c (c.id)}
+                <div class="curso-card catalogo-card">
+                  <div class="curso-top"><span class="badge-area">{areaNombre(c.area)}</span>{#if c.etiqueta}<span class="badge-etiq etiq-{c.etiqueta}">{ETIQUETAS[c.etiqueta] || c.etiqueta}</span>{/if}</div>
+                  <h3>{c.titulo}</h3>
+                  <p class="curso-meta">{c.horas}h · {c.modalidad === 'presencial' ? 'Presencial' : c.modalidad === 'hibrido' ? 'Híbrido' : 'Virtual'} · {NIVELES[c.nivel]}</p>
+                  <button class="btn-mini" onclick={() => abrirCurso(c)}>Ver curso</button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        {#if busqueda || filtroNivel || filtroModalidad || filtroOblig || filtroEstado}
+          <h2 class="area-titulo">Resultados de búsqueda ({cursosFiltrados.length})</h2>
+          <div class="cursos-grid">
+            {#each cursosFiltrados.slice(0, 24) as c (c.id)}
+              <div class="curso-card catalogo-card">
+                <div class="curso-top"><span class="badge-area">{areaNombre(c.area)}</span>{#if c.obligatorio}<span class="badge-obligatorio">OBLIGATORIO</span>{/if}{#if c.mi_estado}<span class="estado {c.mi_estado}">{ESTADOS[c.mi_estado]}</span>{/if}</div>
+                <h3>{c.titulo}</h3>
+                <p class="curso-meta">{c.horas}h · {NIVELES[c.nivel]} · {c.modalidad === 'presencial' ? 'Presencial' : c.modalidad === 'hibrido' ? 'Híbrido' : 'Virtual'}</p>
+                <div class="btns"><button class="btn-mini" onclick={() => abrirCurso(c)}>Ver curso</button>{#if !c.mi_estado || c.mi_estado === 'reprobado'}<button class="btn-mini btn-ok" onclick={() => inscribir(c.id)}>Inscribirme</button>{/if}</div>
+              </div>
+            {/each}
+            {#if !cursosFiltrados.length}<div class="card vacio"><p>Sin resultados con esos filtros.</p></div>{/if}
+          </div>
+        {:else}
+          <div class="categorias-grid">
+            {#each catalogo.areas as area (area)}
+              {@const cursosArea = catalogo.cursos.filter(c => c.area === area)}
+              {@const info = AREAS[area] || { nombre: area, icono: '📚', desc: '' }}
+              <button class="categoria-card" onclick={() => { areaSel = area; busqueda = ''; }}>
+                <div class="cat-icono">{info.icono}</div>
+                <h3>{info.nombre}</h3>
+                <p>{info.desc}</p>
+                <div class="cat-meta"><span class="cat-count">{cursosArea.length} cursos</span><span class="cat-link">Explorar →</span></div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <button class="btn-sec volver-cat" onclick={() => areaSel = ''}>← Todas las categorías</button>
+        <h2 class="area-titulo">{AREAS[areaSel]?.icono} {areaNombre(areaSel)} — {catalogo.cursos.filter(c=>c.area===areaSel).length} cursos</h2>
+        <div class="cursos-grid">
+          {#each catalogo.cursos.filter(c=>c.area===areaSel) as curso (curso.id)}
+            <div class="curso-card catalogo-card">
+              <div class="curso-top">
+                <span class="badge-nivel nivel-{curso.nivel}">{NIVELES[curso.nivel]}</span>
+                {#if curso.etiqueta}<span class="badge-etiq etiq-{curso.etiqueta}">{ETIQUETAS[curso.etiqueta] || curso.etiqueta}</span>{/if}
+                {#if curso.mi_estado}<span class="estado {curso.mi_estado}">{ESTADOS[curso.mi_estado]}</span>{/if}
+              </div>
+              <h3>{curso.titulo}</h3>
+              <p class="curso-meta">{curso.horas}h · {curso.modalidad === 'presencial' ? '📍 Presencial' : curso.modalidad === 'hibrido' ? '🔀 Híbrido' : '💻 Virtual'} · {curso.instructor || 'Academia AGI'}</p>
+              {#if curso.descripcion}<p class="desc">{curso.descripcion}</p>{/if}
+              <div class="btns">
+                <button class="btn-mini" onclick={() => abrirCurso(curso)}>Ver curso</button>
+                {#if !curso.mi_estado || curso.mi_estado === 'reprobado'}<button class="btn-mini btn-ok" onclick={() => inscribir(curso.id)}>Inscribirme</button>{/if}
               </div>
             </div>
-          {/if}
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     <!-- ================= ADMINISTRACIÓN ================= -->
@@ -345,6 +414,10 @@
             <input placeholder="Instructor" bind:value={formCurso.instructor} />
             <input type="number" placeholder="Calificación mínima (%)" bind:value={formCurso.calificacion_minima} />
             <input type="number" placeholder="Máx. intentos" bind:value={formCurso.max_intentos} />
+            <select bind:value={formCurso.modalidad}><option value="virtual">Virtual</option><option value="presencial">Presencial</option><option value="hibrido">Híbrido</option></select>
+            <select bind:value={formCurso.etiqueta}><option value="">Sin etiqueta</option><option value="formacion_basica">Formación básica</option><option value="especializacion">Especialización</option><option value="actualizacion">Actualización</option><option value="obligatoria">Obligatoria</option><option value="taller">Taller práctico</option></select>
+            <input placeholder="Profesiones recomendadas (separadas por coma)" bind:value={formCurso.profesiones} />
+            <input type="number" placeholder="Vigencia contenido (años)" bind:value={formCurso.vigencia_anios} />
             <select bind:value={formCurso.estado}><option value="borrador">Borrador</option><option value="publicado">Publicado</option><option value="archivado">Archivado</option></select>
             <input placeholder="URL video (YouTube, etc.)" bind:value={formCurso.video_url} />
             <input placeholder="Título del video" bind:value={formCurso.video_titulo} />
@@ -352,6 +425,13 @@
             <input placeholder="Nombre del material" bind:value={formCurso.material_nombre} />
           </div>
           <textarea placeholder="Descripción del curso" bind:value={formCurso.descripcion} rows="2"></textarea>
+          <div class="form-grid">
+            <input placeholder="Justificación" bind:value={formCurso.justificacion} />
+            <input placeholder="Objetivo general" bind:value={formCurso.objetivos} />
+            <input placeholder="Temario" bind:value={formCurso.temario} />
+            <input placeholder="Bibliografía / referencias" bind:value={formCurso.bibliografia} />
+            <input placeholder="Revisor/aprobador del material" bind:value={formCurso.revisor} />
+          </div>
           <label class="check"><input type="checkbox" bind:checked={formCurso.obligatorio} /> Curso obligatorio</label>
           <div class="btns"><button class="btn-ok" onclick={guardarCurso}>{editandoCurso ? 'Guardar cambios' : 'Crear curso'}</button>{#if editandoCurso}<button class="btn-sec" onclick={() => editandoCurso = null}>Cancelar</button>{/if}<button class="btn-sec" onclick={sembrar}>Cargar catálogo inicial</button></div>
         </div>
@@ -519,7 +599,14 @@
               <button class="btn-sec" onclick={cerrarDetalle}>✕</button>
             </div>
             <p class="curso-meta">{areaNombre(cursoDetalle.curso.area)} · {NIVELES[cursoDetalle.curso.nivel]} · {cursoDetalle.curso.horas}h · {cursoDetalle.curso.obligatorio ? 'OBLIGATORIO' : 'Complementario'} · Instructor: {cursoDetalle.curso.instructor || 'Academia AGI'}</p>
+            <p class="curso-meta">{cursoDetalle.curso.modalidad === 'presencial' ? '📍 Presencial' : cursoDetalle.curso.modalidad === 'hibrido' ? '🔀 Híbrido' : '💻 Virtual'} · {cursoDetalle.curso.etiqueta ? (ETIQUETAS[cursoDetalle.curso.etiqueta] || cursoDetalle.curso.etiqueta) : ''} · Vigencia del contenido: {cursoDetalle.curso.vigencia_anios || 2} años</p>
             {#if cursoDetalle.curso.descripcion}<p>{cursoDetalle.curso.descripcion}</p>{/if}
+            {#if cursoDetalle.curso.justificacion}<div class="ficha-item"><b>Justificación:</b> {cursoDetalle.curso.justificacion}</div>{/if}
+            {#if cursoDetalle.curso.objetivos}<div class="ficha-item"><b>Objetivos:</b> {cursoDetalle.curso.objetivos}</div>{/if}
+            {#if cursoDetalle.curso.temario}<div class="ficha-item"><b>Temario:</b> {cursoDetalle.curso.temario}</div>{/if}
+            {#if cursoDetalle.curso.bibliografia}<div class="ficha-item"><b>Bibliografía y referencias:</b> {cursoDetalle.curso.bibliografia}</div>{/if}
+            {#if cursoDetalle.curso.revisor}<div class="ficha-item"><b>Revisado por:</b> {cursoDetalle.curso.revisor}</div>{/if}
+            {#if cursoDetalle.curso.profesiones?.length}<div class="ficha-item"><b>Dirigido a:</b> {cursoDetalle.curso.profesiones.join(', ')}</div>{/if}
 
             {#if cursoDetalle.curso.video_url}
               <div class="card video-box">
@@ -723,4 +810,26 @@
   .center { text-align: center; padding: 3rem; }
   .spinner { width: 40px; height: 40px; border: 4px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .categorias-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+  .categoria-card { background: #fff; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); border: none; cursor: pointer; text-align: left; transition: transform .15s, box-shadow .15s; }
+  .categoria-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(30,58,95,.15); }
+  .cat-icono { font-size: 2rem; margin-bottom: .5rem; }
+  .categoria-card h3 { margin: .3rem 0; color: #1e3a5f; font-size: 1.05rem; }
+  .categoria-card p { font-size: .82rem; color: #666; margin: .3rem 0 .8rem; min-height: 2.4em; }
+  .cat-meta { display: flex; justify-content: space-between; align-items: center; }
+  .cat-count { background: #e8eef5; color: #1e3a5f; padding: .2rem .7rem; border-radius: 20px; font-size: .75rem; font-weight: 700; }
+  .cat-link { color: #2563eb; font-size: .8rem; font-weight: 600; }
+  .buscador-bar { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+  .buscador { flex: 1; min-width: 220px; }
+  .buscador-bar select { width: auto; min-width: 140px; }
+  .badge-etiq { padding: .15rem .6rem; border-radius: 20px; font-size: .7rem; font-weight: 700; }
+  .etiq-formacion_basica { background: #dbeafe; color: #1e40af; }
+  .etiq-especializacion { background: #ede9fe; color: #5b21b6; }
+  .etiq-actualizacion { background: #fef9c3; color: #854d0e; }
+  .etiq-obligatoria { background: #fee2e2; color: #dc2626; }
+  .etiq-taller { background: #fce7f3; color: #9d174d; }
+  .volver-cat { margin-bottom: 1rem; }
+  .recomendados { border-left: 4px solid #2563eb; }
+  .ficha-item { font-size: .88rem; color: #444; margin: .5rem 0; padding: .5rem .7rem; background: #f8fafc; border-radius: 8px; }
+  .ficha-item b { color: #1e3a5f; }
 </style>

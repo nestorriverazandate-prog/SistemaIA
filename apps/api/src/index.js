@@ -2502,7 +2502,21 @@ app.get('/api/encuestas-periodo/estadisticas', requireUser, async (req, res) => 
 
 
 // ---------- Academia de Profesionales Gerontológicos ----------
-const AREAS_ACADEMIA = ['gerontologia','cuidados','enfermedades','salud_mental','fisioterapia','etica','emergencias'];
+const AREAS_ACADEMIA = {
+  gerontologia: 'Gerontología y envejecimiento',
+  cuidados: 'Cuidados básicos e integrales del adulto mayor',
+  enfermedades: 'Enfermedades crónicas y patologías geriátricas',
+  fisioterapia: 'Fisioterapia y rehabilitación geriátrica',
+  salud_mental: 'Psicología, salud mental y estimulación cognitiva',
+  nutricion: 'Nutrición y alimentación geriátrica',
+  enfermeria: 'Enfermería y atención clínica geriátrica',
+  emergencias: 'Primeros auxilios y emergencias',
+  paliativos: 'Cuidados paliativos y atención al final de la vida',
+  etica: 'Ética, derechos humanos y trato humanizado',
+  cuidador: 'Desarrollo profesional del cuidador',
+  administracion: 'Administración y gestión de servicios gerontológicos',
+  talleres: 'Talleres prácticos y simulación profesional'
+};
 const esEmpleadoAcademia = (req) => ['staff','cuidador','familiar'].includes(req.user?.perfil?.rol) || isAdmin(req);
 
 async function inscripcionDe(cursoId, empleadoId) {
@@ -2706,9 +2720,15 @@ app.post('/api/academia/admin/curso', requireUser, async (req, res) => {
       instructor: b.instructor || null, fecha_inicio: b.fecha_inicio || null, fecha_fin: b.fecha_fin || null,
       max_intentos: Math.min(10, Math.max(1, Number(b.max_intentos) || 3)),
       calificacion_minima: Math.min(100, Math.max(1, Number(b.calificacion_minima) || 70)),
-      mostrar_resultados: b.mostrar_resultados !== false
+      mostrar_resultados: b.mostrar_resultados !== false,
+      modalidad: ['virtual','presencial','hibrido'].includes(b.modalidad) ? b.modalidad : 'virtual',
+      etiqueta: ['formacion_basica','especializacion','actualizacion','obligatoria','taller'].includes(b.etiqueta) ? b.etiqueta : null,
+      profesiones: Array.isArray(b.profesiones) ? b.profesiones : (typeof b.profesiones === 'string' ? b.profesiones.split(',').map(x=>x.trim()).filter(Boolean) : []),
+      justificacion: b.justificacion || null, objetivos: b.objetivos || null, temario: b.temario || null,
+      bibliografia: b.bibliografia || null, revisor: b.revisor || null,
+      vigencia_anios: Math.min(10, Math.max(1, Number(b.vigencia_anios) || 2))
     };
-    if (!payload.titulo || !AREAS_ACADEMIA.includes(payload.area)) return res.status(400).json({ error: 'Título y área válidos requeridos' });
+    if (!payload.titulo || !payload.area) return res.status(400).json({ error: 'Título y área requeridos' });
     const q = b.id ? supabase.from('academia_cursos').update(payload).eq('id', b.id) : supabase.from('academia_cursos').insert(payload);
     const { data, error } = await q.select().single();
     if (error) throw error;
@@ -2935,37 +2955,136 @@ app.get('/api/academia/admin/eventos', requireUser, async (req, res) => {
 app.post('/api/academia/admin/sembrar', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const SEMILLA = [
-      { titulo: 'Introducción a la gerontología', area: 'gerontologia', nivel: 'basico', horas: 2, descripcion: 'Fundamentos del envejecimiento, demografía y enfoque gerontológico.' },
-      { titulo: 'Derechos de las personas adultas mayores', area: 'gerontologia', nivel: 'basico', horas: 1.5, descripcion: 'Marco legal y derechos fundamentales de las personas mayores.' },
-      { titulo: 'Calidad de vida en la vejez', area: 'gerontologia', nivel: 'intermedio', horas: 2, descripcion: 'Factores determinantes de la calidad de vida y envejecimiento activo.' },
-      { titulo: 'Higiene y cuidado personal', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Técnicas de higiene, cuidado de piel y confort del adulto mayor.' },
-      { titulo: 'Movilización y transferencias seguras', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Técnicas ergonómicas para mover y transferir sin lesionarse.' },
-      { titulo: 'Prevención de úlceras por presión', area: 'cuidados', nivel: 'intermedio', horas: 1.5, descripcion: 'Factores de riesgo, valoración de piel y medidas preventivas.' },
-      { titulo: 'Prevención de caídas', area: 'cuidados', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Factores de riesgo, entorno seguro y acciones ante una caída.' },
-      { titulo: 'Alimentación e hidratación', area: 'cuidados', nivel: 'basico', horas: 1.5, descripcion: 'Necesidades nutricionales, hidratación y apoyo en la alimentación.' },
-      { titulo: 'Alzheimer y otras demencias', area: 'enfermedades', nivel: 'intermedio', horas: 2.5, descripcion: 'Reconocimiento, comunicación y manejo de personas con demencia.' },
-      { titulo: 'Síndrome de fragilidad y sarcopenia', area: 'enfermedades', nivel: 'avanzado', horas: 2, descripcion: 'Valoración y manejo del adulto mayor frágil.' },
-      { titulo: 'Polifarmacia y riesgos asociados', area: 'enfermedades', nivel: 'intermedio', horas: 2, descripcion: 'Riesgos de múltiples medicamentos y señales de alarma.' },
-      { titulo: 'Comunicación con personas adultas mayores', area: 'salud_mental', nivel: 'basico', horas: 1.5, descripcion: 'Escucha activa, validación y comunicación empática.' },
-      { titulo: 'Estimulación de la memoria', area: 'salud_mental', nivel: 'basico', horas: 2, descripcion: 'Actividades de estimulación cognitiva y orientación.' },
-      { titulo: 'Manejo de ansiedad y depresión', area: 'salud_mental', nivel: 'intermedio', horas: 2, descripcion: 'Reconocimiento de signos y estrategias de acompañamiento.' },
-      { titulo: 'Ejercicios de movilidad articular', area: 'fisioterapia', nivel: 'basico', horas: 2, descripcion: 'Movilidad pasiva y activa según condición del paciente.' },
-      { titulo: 'Entrenamiento del equilibrio', area: 'fisioterapia', nivel: 'intermedio', horas: 2, descripcion: 'Ejercicios de equilibrio y reeducación de la marcha.' },
-      { titulo: 'Uso seguro de auxiliares de movilidad', area: 'fisioterapia', nivel: 'basico', horas: 1.5, descripcion: 'Andadera, bastón y silla de ruedas: uso correcto.' },
-      { titulo: 'Ética en la atención gerontológica', area: 'etica', nivel: 'basico', horas: 2, obligatorio: true, descripcion: 'Trato digno, confidencialidad y límites profesionales.' },
-      { titulo: 'Prevención del maltrato y negligencia', area: 'etica', nivel: 'intermedio', horas: 1.5, descripcion: 'Identificación y reporte de situaciones de riesgo.' },
-      { titulo: 'Primeros auxilios básicos', area: 'emergencias', nivel: 'basico', horas: 3, obligatorio: true, descripcion: 'RCP, atragantamiento, caídas y activación de emergencias.' },
-      { titulo: 'Reconocimiento de emergencias cardiovasculares y EVC', area: 'emergencias', nivel: 'intermedio', horas: 2, descripcion: 'Signos de alarma y protocolo de actuación inmediata.' }
-    ];
-    let creados = 0;
-    for (const c of SEMILLA) {
-      const { data: existe } = await supabase.from('academia_cursos').select('id').eq('titulo', c.titulo).maybeSingle();
-      if (existe) continue;
-      await supabase.from('academia_cursos').insert({ ...c, estado: 'publicado', instructor: 'Academia AGI' });
-      creados++;
+    const CATALOGO = {
+  gerontologia: [
+    ['Introducción a la gerontología','basico',2],['Biología del envejecimiento','intermedio',2],['Psicología del envejecimiento','intermedio',2],
+    ['Sociología de la vejez','intermedio',2],['Envejecimiento saludable y activo','basico',2],['Envejecimiento exitoso','intermedio',2],
+    ['Gerontología social','intermedio',2],['Teorías del envejecimiento','avanzado',3],['Derechos humanos de las personas adultas mayores','basico',2],
+    ['Autonomía e independencia funcional','basico',2],['Calidad de vida en la vejez','intermedio',2],['Determinantes sociales del envejecimiento','intermedio',2],
+    ['Valoración Gerontológica Integral','intermedio',3],['Modelos de atención gerontológica','intermedio',2],['Atención centrada en la persona','basico',2]
+  ],
+  cuidados: [
+    ['Fundamentos del cuidado gerontológico','basico',2],['Higiene y aseo personal','basico',2],['Baño en cama y baño asistido','basico',2],
+    ['Vestido y arreglo personal','basico',1.5],['Alimentación e hidratación','basico',1.5],['Asistencia durante la alimentación','basico',1.5],
+    ['Movilización y transferencias','basico',2],['Cambios posturales','basico',1.5],['Cuidados de personas encamadas','basico',2],
+    ['Prevención de lesiones por presión','intermedio',1.5],['Control de eliminación y cuidados de continencia','basico',1.5],
+    ['Apoyo en actividades básicas de la vida diaria','basico',2],['Cuidados domiciliarios','basico',2],
+    ['Cuidados de adultos mayores con dependencia','intermedio',2],['Seguridad y confort en el hogar','basico',1.5]
+  ],
+  enfermedades: [
+    ['Diabetes mellitus en el adulto mayor','intermedio',2],['Hipertensión arterial','intermedio',2],['Enfermedades cardiovasculares','intermedio',2],
+    ['Enfermedad pulmonar obstructiva crónica','intermedio',2],['Enfermedad renal crónica','intermedio',2],['Enfermedad de Parkinson','intermedio',2.5],
+    ['Enfermedad de Alzheimer','intermedio',2.5],['Demencias y deterioro cognitivo','intermedio',2.5],['Accidente cerebrovascular','intermedio',2.5],
+    ['Osteoporosis y osteoartritis','intermedio',2],['Artritis reumatoide','intermedio',2],['Cáncer en el adulto mayor','intermedio',2],
+    ['Alteraciones del sueño','basico',1.5],['Depresión en la vejez','intermedio',2],['Dolor crónico','intermedio',2],
+    ['Polifarmacia y riesgos farmacológicos','intermedio',2],['Síndrome de fragilidad','avanzado',2.5],['Sarcopenia','avanzado',2],
+    ['Desnutrición geriátrica','intermedio',2],['Síndromes geriátricos','avanzado',2.5]
+  ],
+  fisioterapia: [
+    ['Fundamentos de fisioterapia geriátrica','basico',2],['Valoración funcional del adulto mayor','intermedio',2.5],['Movilidad articular y flexibilidad','basico',2],
+    ['Fortalecimiento muscular','intermedio',2],['Entrenamiento de equilibrio','intermedio',2],['Reeducación de la marcha','intermedio',2.5],
+    ['Prevención de caídas','basico',2],['Ejercicio terapéutico en personas mayores','intermedio',2],
+    ['Rehabilitación posterior a un accidente cerebrovascular','avanzado',3],['Intervención fisioterapéutica en Parkinson','avanzado',3],
+    ['Rehabilitación en pacientes con Alzheimer','intermedio',2],['Rehabilitación en osteoporosis','intermedio',2],
+    ['Terapia física en pacientes encamados','basico',2],['Uso de auxiliares de marcha','basico',1.5],
+    ['Transferencias y manejo corporal seguro','basico',2],['Actividad física adaptada','intermedio',2],
+    ['Rehabilitación de la funcionalidad','intermedio',2.5],['Terapia ocupacional en geriatría','intermedio',2],
+    ['Estimulación sensoriomotriz','basico',1.5],['Rehabilitación domiciliaria','intermedio',2.5]
+  ],
+  salud_mental: [
+    ['Psicología del adulto mayor','intermedio',2],['Salud mental en la vejez','intermedio',2],['Depresión y ansiedad','intermedio',2],
+    ['Deterioro cognitivo leve','intermedio',2],['Estimulación cognitiva','basico',2],['Ejercicios de memoria','basico',1.5],
+    ['Orientación temporal y espacial','basico',1.5],['Estimulación de atención y concentración','basico',1.5],
+    ['Manejo de alteraciones conductuales en demencias','intermedio',2.5],['Comunicación con personas con Alzheimer','intermedio',2],
+    ['Prevención del aislamiento social','basico',1.5],['Inteligencia emocional en cuidadores','intermedio',1.5],
+    ['Acompañamiento emocional','basico',1.5],['Manejo del duelo','intermedio',2],['Actividades recreativas y terapéuticas','basico',1.5]
+  ],
+  nutricion: [
+    ['Nutrición en el adulto mayor','basico',2],['Requerimientos nutricionales durante el envejecimiento','intermedio',2],
+    ['Evaluación del estado nutricional','intermedio',2],['Desnutrición y riesgo nutricional','intermedio',2],
+    ['Sarcopenia y alimentación','intermedio',1.5],['Hidratación en personas mayores','basico',1],
+    ['Diabetes y alimentación','intermedio',2],['Hipertensión y alimentación','intermedio',2],
+    ['Alimentación en pacientes con disfagia','intermedio',2],['Modificaciones de consistencia de alimentos','basico',1.5],
+    ['Seguridad alimentaria','basico',1],['Elaboración de menús saludables','basico',1.5],
+    ['Obesidad en el adulto mayor','intermedio',1.5],['Suplementación nutricional: criterios de evaluación','avanzado',2]
+  ],
+  enfermeria: [
+    ['Fundamentos de enfermería geriátrica','intermedio',2.5],['Signos vitales y parámetros de vigilancia','basico',2],
+    ['Valoración clínica básica','intermedio',2],['Administración segura de medicamentos por personal autorizado','intermedio',2.5],
+    ['Control de glucosa capilar por personal capacitado','intermedio',2],['Cuidados de heridas','intermedio',2.5],
+    ['Prevención y vigilancia de infecciones','intermedio',2],['Cuidados de sondas y dispositivos','intermedio',2.5],
+    ['Manejo de pacientes con enfermedades crónicas','intermedio',2],['Identificación de signos de alarma','basico',2],
+    ['Prevención de complicaciones por inmovilidad','intermedio',2],['Registro de notas de evolución','basico',1.5],
+    ['Seguridad del paciente','basico',1.5],['Continuidad de cuidados','intermedio',2]
+  ],
+  emergencias: [
+    ['Primeros auxilios básicos','basico',3],['Reanimación cardiopulmonar (RCP)','basico',3],
+    ['Uso del desfibrilador externo automático (DEA)','intermedio',2.5],['Atención inicial ante caídas','basico',1.5],
+    ['Reconocimiento de accidente cerebrovascular','basico',2],['Identificación de infarto agudo de miocardio','intermedio',2],
+    ['Manejo inicial de atragantamiento','basico',1.5],['Atención inicial ante quemaduras','basico',1.5],
+    ['Reconocimiento de hipoglucemia','basico',1.5],['Activación de servicios de emergencia','basico',1],
+    ['Atención inicial ante pérdida del estado de conciencia','basico',2],['Simulación de emergencias domiciliarias','intermedio',2]
+  ],
+  paliativos: [
+    ['Introducción a los cuidados paliativos','intermedio',2],['Atención integral al paciente terminal','intermedio',2.5],
+    ['Manejo del dolor','intermedio',2.5],['Confort y bienestar','basico',1.5],
+    ['Cuidados físicos y emocionales','basico',2],['Comunicación de malas noticias','intermedio',2],
+    ['Acompañamiento familiar','basico',1.5],['Duelo anticipado','intermedio',1.5],
+    ['Dignidad y autonomía al final de la vida','intermedio',1.5],['Ética en los cuidados paliativos','intermedio',2]
+  ],
+  etica: [
+    ['Ética profesional en gerontología','basico',2],['Derechos de las personas adultas mayores en México','basico',2],
+    ['Prevención del maltrato al adulto mayor','basico',2],['Detección de negligencia y abandono','basico',1.5],
+    ['Consentimiento informado','intermedio',1.5],['Confidencialidad y protección de datos personales','basico',1.5],
+    ['Atención centrada en la persona','basico',1.5],['Comunicación asertiva','basico',1.5],
+    ['Respeto a la autonomía','basico',1.5],['Dignidad humana y envejecimiento','basico',1.5],
+    ['Responsabilidad profesional','basico',1],['Prevención de conflictos con familiares','intermedio',1.5]
+  ],
+  cuidador: [
+    ['Perfil profesional del cuidador gerontológico','basico',1.5],['Funciones y responsabilidades del cuidador','basico',1.5],
+    ['Técnicas de comunicación efectiva','basico',1.5],['Manejo de situaciones difíciles','intermedio',2],
+    ['Prevención del síndrome del cuidador quemado','intermedio',2],['Autocuidado del profesional','basico',1.5],
+    ['Trabajo en equipo multidisciplinario','basico',1.5],['Organización de actividades domiciliarias','basico',1.5],
+    ['Manejo del estrés laboral','basico',1.5],['Resolución de conflictos','intermedio',1.5],
+    ['Responsabilidad y puntualidad','basico',1],['Elaboración de reportes de atención','basico',1.5],
+    ['Límites profesionales en el domicilio','basico',1.5],['Manejo de situaciones de riesgo','intermedio',2]
+  ],
+  administracion: [
+    ['Administración de servicios gerontológicos','intermedio',2],['Gestión de atención domiciliaria','intermedio',2],
+    ['Organización de expedientes de pacientes','basico',1.5],['Elaboración de planes individuales de atención','intermedio',2],
+    ['Supervisión de personal','intermedio',2],['Indicadores de calidad en servicios gerontológicos','intermedio',2],
+    ['Gestión de riesgos','intermedio',2],['Protocolos institucionales','basico',1.5],
+    ['Gestión de recursos humanos','intermedio',2],['Evaluación de satisfacción familiar','basico',1.5],
+    ['Mejora continua de servicios','intermedio',2],['Protección de información y expedientes clínicos','basico',1.5]
+  ],
+  talleres: [
+    ['Taller de movilización y transferencias','basico',4],['Taller de primeros auxilios y RCP','basico',6],
+    ['Taller de estimulación cognitiva','basico',4],['Taller de prevención de caídas','basico',4],
+    ['Taller de higiene y cuidados personales','basico',4]
+  ]
+};
+    const ETIQUETA = { talleres: 'taller' };
+    const MODALIDAD = { talleres: 'presencial' };
+    const OBLIG = new Set(['Higiene y aseo personal','Movilización y transferencias','Prevención de caídas','Ética profesional en gerontología','Primeros auxilios básicos']);
+    let creados = 0, total = 0;
+    for (const [area, cursos] of Object.entries(CATALOGO)) {
+      for (const [titulo, nivel, horas] of cursos) {
+        total++;
+        const { data: existe } = await supabase.from('academia_cursos').select('id').eq('titulo', titulo).maybeSingle();
+        if (existe) continue;
+        await supabase.from('academia_cursos').insert({
+          titulo, area, nivel, horas,
+          descripcion: `Curso de formación en ${AREAS_ACADEMIA[area] || area}.`,
+          estado: 'publicado', instructor: 'Academia AGI',
+          obligatorio: OBLIG.has(titulo),
+          modalidad: MODALIDAD[area] || 'virtual',
+          etiqueta: ETIQUETA[area] || (OBLIG.has(titulo) ? 'obligatoria' : 'formacion_basica'),
+          calificacion_minima: area === 'talleres' ? 80 : 70
+        });
+        creados++;
+      }
     }
-    res.json({ ok: true, cursos_creados: creados, total_semilla: SEMILLA.length });
+    res.json({ ok: true, cursos_creados: creados, total_semilla: total });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
