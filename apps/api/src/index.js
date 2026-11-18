@@ -4101,6 +4101,167 @@ const BANCO_PREGUNTAS = {
   ]
 };
 
+const BANCO_PREGUNTAS_EXTRA = {
+  gerontologia: [
+    ['La vejez como etapa del ciclo vital se caracteriza por:', ['Ser una enfermedad','Cambios biológicos, psicológicos y sociales acumulados','La imposibilidad de aprender','La dependencia total'], 1, 'Es una etapa normal del desarrollo humano.'],
+    ['Un factor protector del envejecimiento saludable es:', ['El aislamiento','La actividad física y social regular','El sedentarismo','La mala alimentación'], 1, 'Los hábitos saludables retrasan el deterioro.'],
+    ['La valoración funcional del adulto mayor evalúa:', ['Solo los análisis de sangre','La capacidad para realizar actividades de la vida diaria','La presión arterial solamente','La talla'], 1, 'Incluye AVD y AIVD.'],
+    ['La red de apoyo social del adulto mayor incluye:', ['Solo la familia nuclear','Familia, amigos, vecinos y comunidad','Solo el médico','Nadie'], 1, 'Es un factor protector clave.'],
+    ['El envejecimiento poblacional en México implica:', ['Menos adultos mayores','Un aumento sostenido de la proporción de personas de 60+','Menos demanda de servicios','Sin cambios'], 1, 'La pirámide poblacional se invierte.'],
+    ['La independencia del adulto mayor se promueve mediante:', ['Hacer todo por él','Adaptar el entorno y respetar sus decisiones','Sobreproteger','Ignorar'], 1, 'El apoyo debe preservar la autonomía.'],
+    ['Un indicador de calidad de vida es:', ['El peso corporal solamente','Bienestar físico, mental, social y espiritual','La presión arterial','La estatura'], 1, 'Es multidimensional.'],
+    ['La gerontología se diferencia de la geriatría en que:', ['Son lo mismo','La gerontología estudia el envejecimiento; la geriatría es la especialidad médica','La geriatría no existe','La gerontología solo investiga'], 1, 'La geriatría es especialidad médica clínica.'],
+    ['El concepto de envejecimiento exitoso se refiere a:', ['Vivir muchos años enfermo','Envejecer con buena salud, funcionalidad y participación','No envejecer','Solo vivir mucho'], 1, 'Integra longevidad y calidad de vida.'],
+    ['La atención domiciliaria gerontológica tiene como ventaja:', ['El paciente sale de casa','Se atiende en el entorno familiar y cotidiano','Es más cara','No tiene ventajas'], 1, 'Favorece la comodidad y el contexto real.']
+  ],
+  cuidados: [
+    ['El baño en cama debe realizarse con el paciente:', ['Desnudo en la sala','Tapado y en su cama para preservar privacidad','De pie','En el jardín'], 1, 'Privacidad y seguridad térmica.'],
+    ['La temperatura del agua para el baño debe ser:', ['Muy caliente','Tibia, verificada antes de aplicar','Fría','Sin importar'], 1, 'Evita quemaduras y favorece la vasodilatación.'],
+    ['La piel del adulto mayor es más vulnerable porque:', ['Es más gruesa','Es más delgada, seca y con menos elasticidad','No cambia','Es más resistente'], 1, 'Mayor riesgo de lesiones y úlceras.'],
+    ['La higiene bucal del encamado previene:', ['Solo mal aliento','Neumonía aspirativa y candidiasis','Nada','Solo caries'], 1, 'Las bacterias bucales pueden aspirarse.'],
+    ['La transferencia segura requiere evaluar:', ['Solo la edad','Capacidad del paciente, fuerza del cuidador y espacio disponible','Solo el peso','Nada'], 1, 'La evaluación previa previene accidentes.'],
+    ['El vendaje compresivo NO debe aplicarse cuando:', ['Hay herida leve','Hay sospecha de trombosis o edema importante','Hay dolor','Siempre'], 1, 'Puede agravar problemas circulatorios.'],
+    ['La deshidratación se manifiesta con:', ['Piel húmeda','Piel seca, orina escasa y confusión','Mucha orina','Solo sed'], 1, 'Signos sistémicos múltiples.'],
+    ['El cambio de ropa del paciente encamado se realiza:', ['De pie','Con técnica de decúbito y sin exponer innecesariamente','Siempre solo','Nunca'], 1, 'Técnica que minimiza esfuerzo y exposición.'],
+    ['La incontinencia urinaria se clasifica en:', ['Leve y grave','De esfuerzo, urgencia, mixta y funcional','Alta y baja','Solo una'], 1, 'Cada tipo requiere manejo diferente.'],
+    ['El confort del paciente durante el cuidado incluye:', ['Solo la posición','Calor adecuado, ropa limpia, analgesia y escucha','Solo silencio','Nada'], 1, 'Es multidimensional.']
+  ],
+  enfermedades: [
+    ['La glucosa capilar normal en ayunas es aproximadamente:', ['200 mg/dL','70-100 mg/dL','300 mg/dL','50 mg/dL'], 1, 'Rango normal según laboratorios.'],
+    ['Los factores de riesgo cardiovascular incluyen:', ['Ejercicio regular','Tabaquismo, sedentarismo e hipertensión','Frutas','Sueño'], 1, 'Hábitos modificables clave.'],
+    ['El deterioro cognitivo leve difiere de la demencia en que:', ['Es igual','No interfiere significativamente con la vida diaria','Es peor','No existe'], 1, 'DCL es un paso previo posible pero no siempre progresa.'],
+    ['La sarcopenia se asocia con:', ['Mayor fuerza','Pérdida de fuerza, riesgo de caídas y dependencia','Mejor marcha','Más energía'], 1, 'Impacta la funcionalidad.'],
+    ['El dolor neuropático se caracteriza por:', ['Dolor punzante o ardiente','Dolor sordo solamente','No existe','Solo muscular'], 0, 'Afecta los nervios.'],
+    ['La enfermedad de Parkinson se manifiesta con:', ['Solo tos','Tembor en reposo, rigidez y bradicinesia','Fiebre','Ceguera'], 1, 'Tríada motora clásica.'],
+    ['La desnutrición en el adulto mayor se agrava por:', ['Buen apetito','Anorexia, polifarmacia y problemas dentales','Ejercicio','Hidratación'], 1, 'Múltiples causas convergen.'],
+    ['La osteoporosis se previene con:', ['Solo calcio','Calcio, vitamina D y actividad física','Nada','Solo reposo'], 1, 'Estrategia integral.'],
+    ['El síndrome geriátrico es:', ['Una enfermedad específica','Un conjunto de condiciones que afectan la funcionalidad','Solo demencia','Solo fractura'], 1, 'Incluye caídas, incontinencia, delirio, fragilidad.'],
+    ['La EPOC se relaciona con:', ['Solo asma','Tabaquismo y exposición a contaminantes','Solo gripe','Solo dieta'], 1, 'Es obstructiva y progresiva.'],
+    ['La enfermedad renal crónica se valora con:', ['Solo el peso','Creatinina, urea y depuración glomerular','Solo la orina','Nada'], 1, 'Función renal estimada.'],
+    ['La fragilidad en el adulto mayor predice:', ['Mejor salud','Riesgo de dependencia, hospitalización y muerte','Menos caídas','Más fuerza'], 1, 'Es un estado de vulnerabilidad.']
+  ],
+  fisioterapia: [
+    ['La fuerza muscular se evalúa con:', ['La vista','Pruebas funcionales y dinamometría','Solo el peso','Nada'], 1, 'Se mide objetivamente.'],
+    ['El ejercicio aeróbico en mayores mejora:', ['Solo el corazón','Resistencia cardiovascular y ánimo','Solo los huesos','Nada'], 1, 'Beneficio multisistémico.'],
+    ['La restricción articular limita:', ['Solo la vista','El rango de movimiento y la funcionalidad','Solo el peso','Nada'], 1, 'Reduce la independencia.'],
+    ['La marcha antálgica se caracteriza por:', ['Caminar normal','Alteración del patrón por dolor','Correr','Sentarse'], 1, 'Compensación por dolor.'],
+    ['La terapia ocupacional busca:', ['Solo fuerza','Participación en actividades significativas','Solo ejercicios','Nada'], 1, 'Sentido y propósito.'],
+    ['La estimulación propioceptiva mejora:', ['Solo la vista','El equilibrio y la conciencia corporal','Solo el oído','Nada'], 1, 'Integración sensorial-motora.'],
+    ['El calentamiento previo al ejercicio sirve para:', ['Nada','Preparar el cuerpo y prevenir lesiones','Enfriar','Comer'], 0, 'Reduce el riesgo de lesión.'],
+    ['La marcha segura requiere:', ['Solo calzado','Fuerza, equilibrio y entorno adecuado','Solo velocidad','Nada'], 1, 'Factores combinados.'],
+    ['La rehabilitación post-EVC busca:', ['Olvidar','Recuperar función perdida y compensar','Nada','Solo reposo'], 1, 'Neuroplasticidad.'],
+    ['El ejercicio adaptado se ajusta a:', ['Todos igual','La capacidad individual del paciente','Solo jóvenes','Nada'], 1, 'Individualización.']
+  ],
+  salud_mental: [
+    ['La atención plena (mindfulness) en el adulto mayor ayuda a:', ['Nada','Reducir ansiedad y mejorar el bienestar','Solo dormir','Solo comer'], 1, 'Estrategia de autorregulación.'],
+    ['La reminiscencia terapéutica consiste en:', ['Recordar solo lo malo','Revivir recuerdos positivos para bienestar','Olvidar todo','Dormir'], 1, 'Técnica de estimulación.'],
+    ['La validación en demencias significa:', ['Corregir siempre','Aceptar la realidad del paciente aunque difiera','Ignorar','Reñir'], 1, 'Reduce ansiedad y resistencias.'],
+    ['El aislamiento se combate con:', ['Soledad','Actividades sociales y contacto regular','Nada','Televisión'], 1, 'La conexión humana protege.'],
+    ['La depresión en el adulto mayor se trata con:', ['Solo pastillas','Terapia, apoyo social y en algunos casos fármacos','Nada','Encierro'], 1, 'Enfoque integral.'],
+    ['La comunicación no verbal en demencias incluye:', ['Solo palabras','Tono de voz, expresión facial y contacto','Nada','Gritos'], 1, 'Mensaje más allá de las palabras.'],
+    ['La actividad ocupacional terapéutica promueve:', ['Solo distracción','Sentido de propósito y competencia','Nada','Pasividad'], 1, 'Participación significativa.'],
+    ['El duelo en el adulto mayor puede manifestarse con:', ['Solo llanto','Tristeza, culpa, aislamiento y cambios físicos','Solo alegría','Nada'], 1, 'Es un proceso multifacético.'],
+    ['La resiliencia en el adulto mayor se refiere a:', ['Fragilidad','Capacidad de adaptarse y recuperarse de adversidades','Nada','Debilidad'], 1, 'Factor protector clave.'],
+    ['La estimulación sensorial en demencias incluye:', ['Solo vista','Tocar, oler, escuchar y saborear','Nada','Solo oído'], 1, 'Activa múltiples sentidos.']
+  ],
+  nutricion: [
+    ['La proteína en el adulto mayor es importante porque:', ['No sirve','Preserva músculo y función','Solo da energía','Nada'], 1, 'Previene la sarcopenia.'],
+    ['La fibra dietética ayuda a:', ['Solo el peso','La digestión y el control glucémico','Solo la vista','Nada'], 1, 'Beneficio metabólico.'],
+    ['La vitamina D en el adulto mayor previene:', ['Solo resfriados','Osteoporosis y debilidad muscular','Solo caries','Nada'], 1, 'Clave para los huesos.'],
+    ['El índice de masa corporal en el adulto mayor se interpreta con cautela porque:', ['Es perfecto','Puede enmascarar sarcopenia','No sirve','Solo en niños'], 1, 'La composición corporal cambia.'],
+    ['La disfagia se evalúa con:', ['Solo la vista','Prueba de deglución y valoración clínica','Nada','Solo peso'], 1, 'Diagnóstico funcional.'],
+    ['La consistencia de alimentos en disfagia se clasifica por:', ['Color','Textura y nivel de espesante','Sabor','Nada'], 1, 'Estándar IDDSI.'],
+    ['La deshidratación crónica en mayores se asocia con:', ['Mejor salud','Confusión, estreñimiento y caídas','Más energía','Nada'], 1, 'Impacto sistémico.'],
+    ['El sodio en la dieta hipertensa debe ser:', ['Abundante','Restringido','Irrelevante','Solo en niños'], 1, 'Control de presión.'],
+    ['La suplementación proteica se indica cuando:', ['Siempre','Hay riesgo o evidencia de desnutrición','Nunca','Solo en jóvenes'], 1, 'Basada en evaluación.'],
+    ['La seguridad alimentaria incluye:', ['Solo cocinar','Higiene, conservación y manipulación correcta','Solo comprar','Nada'], 1, 'Previene intoxicaciones.']
+  ],
+  enfermeria: [
+    ['La escala de Braden evalúa:', ['Solo el dolor','Riesgo de lesiones por presión','Solo la fiebre','Nada'], 1, 'Herramienta estándar.'],
+    ['La higiene de manos es la medida más importante para:', ['Solo el olor','Prevenir infecciones','Solo la vista','Nada'], 1, 'Simple y efectiva.'],
+    ['El monitoreo de constantes vitales incluye:', ['Solo la temperatura','Tensión, pulso, respiración y temperatura','Solo peso','Nada'], 1, 'Set completo.'],
+    ['La técnica aséptica en curaciones previene:', ['Solo dolor','Infección de la herida','Solo cicatrización','Nada'], 1, 'Barreras microbiológicas.'],
+    ['El registro de enfermería debe ser:', ['Vago','Objetivo, legible y con hora','Confidencial','Opcional'], 1, 'Documentación de calidad.'],
+    ['La identificación del paciente se verifica con:', ['Solo el nombre','Dos identificadores (nombre + fecha/cama)','Nada','Solo la cara'], 1, 'Previene errores.'],
+    ['La escalera analgésica de la OMS incluye:', ['Solo opioides','No opioides, opioides débiles y fuertes según dolor','Solo placebo','Nada'], 1, 'Escalonada por intensidad.'],
+    ['La profilaxis de trombosis incluye:', ['Solo reposo','Movilización, media de compresión y en casos fármacos','Nada','Solo vendas'], 1, 'Prevención multifactorial.'],
+    ['La sonda vesical requiere:', ['No cuidados','Higiene, fijación y vigilancia de infecciones','Solo vaciar','Nada'], 1, 'Dispositivo de riesgo.'],
+    ['La comunicación con el médico se realiza mediante:', ['Solo notas','Reporte estructurado y llamada si es urgente','Solo WhatsApp','Nada'], 1, 'SBAR recomendado.']
+  ],
+  emergencias: [
+    ['La cadena de supervivencia en paro cardiaco incluye:', ['Solo RCP','Activación temprana, RCP, desfibrilación y soporte','Solo DEA','Nada'], 1, 'Cada eslabón es vital.'],
+    ['Las compresiones en RCP deben ser:', ['Lentas','Rápidas, profundas y centradas en el esternón','Superficiales','Irregulares'], 1, '100-120/min, 5-6 cm.'],
+    ['El DEA analiza:', ['Solo el ritmo','El ritmo cardíaco y decide si desfibrila','Solo la presión','Nada'], 1, 'Automatizado.'],
+    ['Ante una hemorragia externa se debe:', ['Ignorar','Presionar con apósito y elevar','Poner tierra','Nada'], 1, 'Control de sangrado.'],
+    ['La posición lateral de seguridad se usa en:', ['Todo paciente','Paciente inconsciente que respira','Solo niños','Nunca'], 1, 'Protege la vía aérea.'],
+    ['El golpe de calor se reconoce por:', ['Solo sudor','Temperatura alta, confusión y piel seca','Solo frío','Nada'], 1, 'Emergencia térmica.'],
+    ['La hipotermia se maneja con:', ['Agua caliente','Recalentamiento gradual','Frotar','Nada'], 1, 'Cuidado de reanimación.'],
+    ['El kit de emergencia domiciliaria debe incluir:', ['Solo vendas','Botiquín completo, contactos y plan','Nada','Solo agua'], 1, 'Preparación previa.'],
+    ['La obstrucción de vía aérea parcial se maneja con:', ['Maniobras de desobstrucción','Tos espontánea y animar a toser','Golpes','Nada'], 0, 'Si puede toser, se anima.'],
+    ['El tiempo es cerebro en EVC significa:', ['Nada','Cada minuto cuenta para la recuperación','Solo en niños','Nada'], 1, 'Urgencia neurológica.']
+  ],
+  paliativos: [
+    ['La sedación en cuidados paliativos se indica cuando:', ['Siempre','Síntomas refractarios con consentimiento','Nunca','Solo en UCI'], 1, 'Decisión ética compartida.'],
+    ['La vía subcutánea en paliativos se usa para:', ['Solo venosa','Administrar medicamentos de forma no invasiva','Solo oral','Nada'], 1, 'Acceso domiciliario.'],
+    ['El delirium en el paciente terminal es:', ['Normal','Estado confusional agudo que requiere evaluación','Solo demencia','Nada'], 1, 'Reversible en muchos casos.'],
+    ['La xerostomía en paliativos se maneja con:', ['Nada','Hidratación, humidificación y cuidado bucal','Solo antibióticos','Nada'], 1, 'Confort.'],
+    ['La congestión en los últimos días se alivia con:', ['Nada','Posición, humidificación y en casos fármacos','Solo agua','Nada'], 1, 'Medidas de confort.'],
+    ['La muerte digna incluye:', ['Solo morir','Control de síntomas, privacidad y acompañamiento','Solo hospital','Nada'], 1, 'Respeto integral.'],
+    ['El testamento vital / directivas anticipadas permite:', ['Nada','Expresar deseos sobre tratamientos futuros','Solo herencias','Nada'], 1, 'Autonomía anticipada.'],
+    ['La eutanasia activa en México:', ['Es legal en todo','Solo en contextos específicos y con regulación estricta','Es libre','No existe'], 1, 'Marco legal limitado.'],
+    ['El acompañamiento en el duelo incluye:', ['Evitar el tema','Presencia, escucha y normalizar el proceso','Solo','Nada'], 1, 'Acompañamiento humano.'],
+    ['La fase de agonía se caracteriza por:', ['Fuerza','Disminución de ingesta, somnolencia y cambios circulatorios','Solo dolor','Nada'], 1, 'Signos de proximidad.']
+  ],
+  etica: [
+    ['El principio de beneficencia implica:', ['Hacer daño','Actuar en beneficio del paciente','Solo obedecer','Nada'], 1, 'Hacer el bien.'],
+    ['El principio de no maleficencia significa:', ['Hacer daño','No causar daño innecesario','Solo ayudar','Nada'], 1, 'Primum non nocere.'],
+    ['El consentimiento sustituto aplica cuando:', ['Siempre','El paciente no puede decidir por sí mismo','Nunca','Solo niños'], 1, 'Tutor o familia según ley.'],
+    ['La confidencialidad puede romperse cuando:', ['Nunca','Hay riesgo de daño grave a sí mismo o terceros','Siempre','Solo por curiosidad'], 1, 'Excepción por protección.'],
+    ['El deber de reporte del maltrato es:', ['Opcional','Obligatorio ante sospecha fundada','Solo si piden','Nunca'], 1, 'Obligación legal y ética.'],
+    ['La comunicación de malas noticias sigue el protocolo:', ['Decir todo de golpe','Preparar, informar, escuchar y acompañar','Solo escribir','Nada'], 1, 'SPIKES simplificado.'],
+    ['El conflicto de interés en el cuidado se da cuando:', ['Nunca','El interés personal interfiere con el del paciente','Solo en empresas','Nada'], 1, 'Transparencia.'],
+    ['La equidad en la atención significa:', ['Trato igual para todos','Trato justo según necesidades','Solo a los que pagan','Nada'], 1, 'Equidad no es igualdad.'],
+    ['El cuidado culturalmente sensible requiere:', ['Ignorar cultura','Respetar creencias y prácticas del paciente','Imponer','Nada'], 1, 'Diversidad humana.'],
+    ['La objeción de conciencia del profesional:', ['No existe','Puede negarse a ciertas prácticas por convicciones, con alternativa','Es ilegal','Nada'], 1, 'Con límites éticos.']
+  ],
+  cuidador: [
+    ['La comunicación empática incluye:', ['Solo oír','Escuchar activamente y validar emociones','Solo hablar','Nada'], 1, 'Conexión humana.'],
+    ['El burnout del cuidador se manifiesta con:', ['Energía','Agotamiento emocional, cinismo y baja realización','Solo alegría','Nada'], 1, 'Síndrome de desgaste.'],
+    ['Las técnicas de manejo del estrés incluyen:', ['Solo trabajar','Respiración, pausas y autocuidado','Solo dormir','Nada'], 1, 'Regulación.'],
+    ['La escucha activa requiere:', ['Interrumpir','Atención plena, contacto visual y no juzgar','Solo oír','Nada'], 1, 'Presencia real.'],
+    ['La resolución de conflictos con familiares se logra con:', ['Imponer','Comunicación clara, empatía y límites','Gritar','Ignorar'], 1, 'Habilidad interpersonal.'],
+    ['La organización del turno incluye:', [' Improvisar','Planificar actividades, medicación y reportes','Nada','Solo trabajar'], 1, 'Rutina segura.'],
+    ['El reporte de incidencia debe ser:', ['Inmediato','Veraz, objetivo y dentro del plazo','Vago','Opcional'], 1, 'Documentación.'],
+    ['La higiene emocional del cuidador se cuida con:', ['Solo trabajo','Límites, descanso y redes de apoyo','Solo dinero','Nada'], 1, 'Sostenibilidad.'],
+    ['La delegación de tareas en el equipo requiere:', ['Hacer todo solo','Comunicar, coordinar y verificar','Nada','Solo confiar'], 1, 'Trabajo en red.'],
+    ['La puntualidad del cuidador genera:', ['Nada','Confianza y seguridad en el paciente','Solo quejas','Nada'], 1, 'Pilar de la relación.']
+  ],
+  administracion: [
+    ['El ciclo PHVA (PDCA) de mejora continua incluye:', ['Solo planear','Planear, hacer, verificar y actuar','Solo hacer','Nada'], 1, 'Mejora sistemática.'],
+    ['Un indicador de calidad asistencial es:', ['Solo ingresos','Tasa de caídas, úlceras o satisfacción','Solo número de turnos','Nada'], 1, 'Resultados medibles.'],
+    ['La gestión del riesgo incluye:', ['Ignorar','Identificar, evaluar y mitigar peligros','Solo asegurar','Nada'], 1, 'Prevención.'],
+    ['La evaluación del desempeño del personal mide:', ['Solo puntualidad','Competencias, resultados y conductas','Solo edad','Nada'], 1, 'Integral.'],
+    ['La rotación de personal se previene con:', ['Nada','Reconocimiento, formación y buen clima','Solo salario','Nada'], 1, 'Retención.'],
+    ['El expediente clínico electrónico debe ser:', ['Público','Confidencial, íntegro y con respaldo','Opcional','Nada'], 1, 'Normativa.'],
+    ['La supervisión de calidad incluye:', ['Solo revisar','Auditorías, observación y retroalimentación','Solo castigar','Nada'], 1, 'Mejora.'],
+    ['El plan de contingencia para emergencias incluye:', ['Nada','Procedimientos, responsables y simulacros','Solo seguro','Nada'], 1, 'Preparación.'],
+    ['La capacitación del personal es:', ['Opcional','Inversión en calidad y seguridad','Solo para nuevos','Nada'], 1, 'Desarrollo.'],
+    ['La satisfacción del paciente se mide con:', ['Solo quejas','Encuestas y seguimiento sistemático','Nada','Solo llamadas'], 1, 'Feedback estructurado.']
+  ],
+  talleres: [
+    ['La práctica de transferencia en taller debe ser:', ['Solo ver','Repetida con retroalimentación y corrección','Una vez','Nada'], 1, 'Aprendizaje motor.'],
+    ['La evaluación por lista de cotejo incluye:', ['Solo nota','Criterios observables de desempeño','Solo teoría','Nada'], 1, 'Evaluación objetiva.'],
+    ['El maniquí de RCP permite:', ['Solo ver','Practicar compresiones con retroalimentación','Nada','Solo leer'], 1, 'Simulación realista.'],
+    ['La retroalimentación inmediata en taller:', ['Atrasada','Corrige errores y refuerza aciertos','Solo al final','Nunca'], 1, 'Aprendizaje efectivo.'],
+    ['La competencia práctica se demuestra con:', ['Solo examen','Desempeño correcto en situación real o simulada','Solo teoría','Nada'], 1, 'Evaluación auténtica.'],
+    ['El calentamiento en taller práctico:', ['Opcional','Prepara el cuerpo y previene lesiones','Solo para niños','Nada'], 0, 'Seguridad.'],
+    ['La variación de escenarios en simulación:', ['Repetitiva','Genera adaptación y pensamiento crítico','Nada','Solo uno'], 1, 'Transferencia.'],
+    ['El instructor en taller debe:', ['Solo observar','Demostrar, corregir y facilitar','Solo hablar','Nada'], 1, 'Rol activo.'],
+    ['La evaluación sumativa del taller mide:', ['Solo asistencia','Competencias alcanzadas al final','Solo puntualidad','Nada'], 1, 'Resultado final.'],
+    ['El portafolio de evidencias en formación práctica incluye:', ['Solo notas','Registros de desempeño y reflexiones','Nada','Solo fotos'], 1, 'Documentación de aprendizaje.']
+  ]
+};
+
 const CONTENIDO_UNIDADES = {
   gerontologia: ['Conceptos fundamentales del envejecimiento','Aspectos biológicos, psicológicos y sociales del ciclo vital','Funcionalidad, autonomía e independencia en la vejez','Calidad de vida y envejecimiento activo'],
   cuidados: ['Fundamentos del cuidado integral del adulto mayor','Higiene, confort y cuidado personal','Movilización, transferencias y cambios posturales','Prevención de complicaciones: caídas, úlceras y deshidratación'],
@@ -4125,21 +4286,22 @@ app.post('/api/academia/admin/sembrar-contenido', requireUser, async (req, res) 
     for (const curso of cursos || []) {
       const { count: hayUnidades } = await supabase.from('academia_unidades').select('id', { count: 'exact', head: true }).eq('curso_id', curso.id);
       if (hayUnidades > 0) { cursosCon++; continue; }
-      const banco = BANCO_PREGUNTAS[curso.area] || BANCO_PREGUNTAS.cuidador;
+      const banco = [...(BANCO_PREGUNTAS[curso.area] || BANCO_PREGUNTAS.cuidador), ...(BANCO_PREGUNTAS_EXTRA[curso.area] || [])];
       const titulos = CONTENIDO_UNIDADES[curso.area] || CONTENIDO_UNIDADES.cuidados;
-      const nUnidades = curso.area === 'talleres' ? 4 : 4 + (Math.floor(Math.random() * 2)); // 4-5
+      const nUnidades = curso.area === 'talleres' ? 4 : 5;
       const unidadesIds = [];
       for (let i = 0; i < nUnidades; i++) {
-        const titulo = titulos[i % titulos.length];
+        const tema = titulos[i % titulos.length];
+        const titulo = `${tema} — ${curso.titulo}`;
         const { data: u } = await supabase.from('academia_unidades').insert({
           curso_id: curso.id, orden: i + 1, titulo,
-          contenido: `${titulo}. En esta unidad se desarrollan los conceptos fundamentales, las aplicaciones prácticas en el entorno domiciliario y los criterios de evaluación del desempeño del profesional de la agencia. El contenido está dirigido a fortalecer las competencias del participante en ${curso.titulo.toLowerCase()} dentro del marco de la atención gerontológica integral.`
+          contenido: `Unidad ${i + 1} de ${nUnidades}: ${tema}. En el marco del curso "${curso.titulo}", esta unidad desarrolla los conceptos fundamentales, las aplicaciones prácticas en el entorno domiciliario y los criterios de evaluación del desempeño profesional. Se abordan casos representativos de la atención gerontológica integral, las medidas de seguridad pertinentes y las competencias específicas que el participante debe demostrar para avanzar.`
         }).select().single();
         if (u) { unidadesIds.push(u.id); unidadesCreadas++; }
       }
       // Preguntas por unidad: muestra del banco de la categoría
       for (let i = 0; i < unidadesIds.length; i++) {
-        const muestra = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(10, banco.length));
+        const muestra = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(12, banco.length));
         for (const [pregunta, opciones, correctaIdx, retro] of muestra) {
           const tipo = opciones.length === 2 && ['Verdadero','Falso'].includes(opciones[0]) ? 'verdadero_falso' : 'opcion_multiple';
           await supabase.from('academia_preguntas').insert({
@@ -4152,7 +4314,7 @@ app.post('/api/academia/admin/sembrar-contenido', requireUser, async (req, res) 
         }
       }
       // Examen final: preguntas sin unidad
-      const muestraFinal = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(15, banco.length));
+      const muestraFinal = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(20, banco.length));
       for (const [pregunta, opciones, correctaIdx, retro] of muestraFinal) {
         const tipo = opciones.length === 2 && ['Verdadero','Falso'].includes(opciones[0]) ? 'verdadero_falso' : 'opcion_multiple';
         await supabase.from('academia_preguntas').insert({
