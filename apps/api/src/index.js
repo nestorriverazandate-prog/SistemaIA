@@ -4336,9 +4336,19 @@ const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM = process.env.TWILIO_FROM;
 const DIRECTIVO_TEL = process.env.DIRECTIVO_TELEFONO || '';
 
+// Normaliza a E.164: números mexicanos de 10 dígitos → +52XXXXXXXXXX
+function aE164(tel) {
+  const d = String(tel || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (String(tel).trim().startsWith('+')) return '+' + d;
+  if (d.length === 10) return '+52' + d;
+  if (d.length === 12 && d.startsWith('52')) return '+' + d;
+  return '+' + d;
+}
+
 async function llamarYMensaje(emergenciaId, emp) {
   // Llamada + SMS de respaldo vía Twilio si está configurado; si no, queda registrado
-  const tel = DIRECTIVO_TEL || emp?.contacto_emergencia_telefono || emp?.contactos_emergencia?.[0]?.telefono || emp?.telefono || '';
+  const tel = aE164(DIRECTIVO_TEL || emp?.contacto_emergencia_telefono || emp?.contactos_emergencia?.[0]?.telefono || emp?.telefono || '');
   if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM || !tel) {
     await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: 'No configurado: faltan credenciales Twilio o teléfono del directivo (TWILIO_*, DIRECTIVO_TELEFONO)' }).catch(() => {});
     return { llamada: 'no_configurada' };
