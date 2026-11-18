@@ -647,9 +647,9 @@
  </div>
  </div>
  <div>
- <span class="badge">{perfil.email} · empleado</span>
  <a class="ghost link" href="/mapa-pacientes">Mapa</a>
  <a class="ghost link" href="/mis-pacientes">Mis pacientes</a>
+ <a class="ghost link" href="/academia">Academia</a>
  <a class="ghost link" href="/evaluaciones">Mis evaluaciones</a>
  <a class="ghost link" href="/agenda">Mi agenda</a>
  <a class="ghost link" href="/registrar">Registrar visita</a>
@@ -738,6 +738,9 @@
  </div>
  {:else}<p class="muted">Sin notificaciones</p>{/each}
  </section>
+ <div class="user-corner">
+  <span class="badge corner-badge">{perfil.email} · {etiquetaRol(perfil.rol)}</span>
+ </div>
  </main>
 {/if}
 
