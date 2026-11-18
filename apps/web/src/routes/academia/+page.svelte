@@ -15,6 +15,9 @@
   let evaluacion = $state(null);
   let respuestas = $state({});
   let resultado = $state(null);
+  let prog = $state(null);
+  let examenUnidad = $state(null);
+  let examenFinal = $state(false);
   let enviando = $state(false);
 
   // Admin
@@ -89,6 +92,8 @@
     const d = await api.raw('/api/academia/cursos/' + curso.id);
     cursoDetalle = d;
     unidadesHechas = new Set(d.inscripcion?.unidades_completadas || []);
+    const p = await api.raw('/api/academia/curso/' + curso.id + '/progreso').catch(() => null);
+    prog = p;
     detalleLoading = false;
   }
 
@@ -110,6 +115,31 @@
     respuestas = {};
   }
 
+  const ESTADOS_UNIDAD = { no_iniciada: 'No iniciada', disponible: 'Disponible', en_curso: 'En curso', no_aprobada: 'No aprobada', aprobada: '✓ Aprobada', bloqueada: '🔒 Bloqueada' };
+  function preguntasDeUnidad(uid) { return (cursoDetalle?.preguntas || []).filter(p => p.unidad_id === uid); }
+  function preguntasFinales() {
+    const fin = (cursoDetalle?.preguntas || []).filter(p => !p.unidad_id);
+    return fin.length ? fin : (cursoDetalle?.preguntas || []);
+  }
+  function iniciarExamenUnidad(u) { examenUnidad = u; examenFinal = false; respuestas = {}; window.scrollTo(0, 0); }
+  async function enviarExamenUnidad() {
+    enviando = true;
+    try {
+      const r = await api.raw('/api/academia/examen-unidad', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, unidad_id: examenUnidad.id, respuestas }) });
+      resultado = r; examenUnidad = null; respuestas = {};
+      await abrirCurso({ id: cursoDetalle.curso.id });
+    } catch (e) { alert(e.message); }
+    enviando = false;
+  }
+  async function enviarExamenFinal() {
+    enviando = true;
+    try {
+      const r = await api.raw('/api/academia/examen-final', { method: 'POST', body: JSON.stringify({ curso_id: cursoDetalle.curso.id, respuestas }) });
+      resultado = r; examenFinal = false; respuestas = {};
+      await abrirCurso({ id: cursoDetalle.curso.id }); await cargar();
+    } catch (e) { alert(e.message); }
+    enviando = false;
+  }
   async function enviarEvaluacion() {
     enviando = true;
     try {
@@ -148,6 +178,7 @@
   async function guardarProtocolo() { await api.raw('/api/academia/admin/protocolo', { method: 'POST', body: JSON.stringify(nuevoProtocolo) }); nuevoProtocolo = { nombre: '', version: '', descripcion: '', contenido_url: '', responsable: '' }; await cargar(); msg = 'Protocolo guardado'; }
   async function guardarEvento() { await api.raw('/api/academia/admin/evento', { method: 'POST', body: JSON.stringify(nuevoEvento) }); nuevoEvento = { nombre: '', fecha: '', hora: '', duracion: '', instructor: '', modalidad: 'virtual', ubicacion: '', descripcion: '' }; await cargar(); msg = 'Evento guardado'; }
   async function sembrar() { const r = await api.raw('/api/academia/admin/sembrar', { method: 'POST', body: JSON.stringify({}) }); msg = `Catálogo cargado: ${r.cursos_creados} cursos nuevos`; await cargar(); }
+  async function sembrarContenido() { msg = 'Generando contenido académico... puede tardar'; const r = await api.raw('/api/academia/admin/sembrar-contenido', { method: 'POST', body: JSON.stringify({}) }); msg = `Contenido generado: ${r.cursos_procesados} cursos, ${r.unidades_creadas} unidades, ${r.preguntas_creadas} preguntas`; await cargar(); }
   async function marcarAsistencia(ev, empId, presente) {
     await api.raw('/api/academia/admin/asistencia', { method: 'POST', body: JSON.stringify({ evento_id: ev.id, asistencias: [{ empleado_id: empId, presente }] }) });
   }
@@ -433,7 +464,7 @@
             <input placeholder="Revisor/aprobador del material" bind:value={formCurso.revisor} />
           </div>
           <label class="check"><input type="checkbox" bind:checked={formCurso.obligatorio} /> Curso obligatorio</label>
-          <div class="btns"><button class="btn-ok" onclick={guardarCurso}>{editandoCurso ? 'Guardar cambios' : 'Crear curso'}</button>{#if editandoCurso}<button class="btn-sec" onclick={() => editandoCurso = null}>Cancelar</button>{/if}<button class="btn-sec" onclick={sembrar}>Cargar catálogo inicial</button></div>
+          <div class="btns"><button class="btn-ok" onclick={guardarCurso}>{editandoCurso ? 'Guardar cambios' : 'Crear curso'}</button>{#if editandoCurso}<button class="btn-sec" onclick={() => editandoCurso = null}>Cancelar</button>{/if}<button class="btn-sec" onclick={sembrar}>Cargar catálogo inicial</button><button class="btn-sec" onclick={sembrarContenido}>Generar unidades y exámenes</button></div>
         </div>
         <div class="tabla-wrap"><table>
           <thead><tr><th>Curso</th><th>Área</th><th>Hrs</th><th>Estado</th><th>Inscritos</th><th>Aprobados</th><th>Promedio</th><th></th></tr></thead>
@@ -624,22 +655,48 @@
               <a class="btn-mini" href={cursoDetalle.curso.material_url} target="_blank">📄 {cursoDetalle.curso.material_nombre || 'Material de estudio'}</a>
             {/if}
 
-            {#if cursoDetalle.unidades?.length}
-              <h4>Unidades del curso</h4>
+            {#if prog?.unidades?.length}
+              <h4>Unidades del curso — avance {prog.inscripcion?.progreso || 0}%</h4>
+              <div class="progreso-bar"><div class="progreso-fill" style="width:{prog.inscripcion?.progreso || 0}%"></div></div>
+              {#each prog.unidades as u, i (u.id)}
+                <div class="unidad estado-{u.estado}">
+                  <div class="unidad-head">
+                    <span>Unidad {i + 1}: {u.titulo}</span>
+                    <span class="badge-uni u-{u.estado}">{ESTADOS_UNIDAD[u.estado]}</span>
+                  </div>
+                  {#if u.contenido}<p class="desc">{u.contenido}</p>{/if}
+                  <div class="btns">
+                    {#if u.estado === 'disponible' || u.estado === 'no_aprobada'}
+                      <button class="btn-mini" onclick={() => iniciarExamenUnidad(u)}>Examen de la unidad ({preguntasDeUnidad(u.id).length} preg.)</button>
+                    {/if}
+                    {#if u.estado === 'bloqueada'}<span class="desc">🔒 Aprueba la unidad anterior para desbloquear</span>{/if}
+                    {#if u.mejor_calificacion != null}<span class="calif">Mejor: {u.mejor_calificacion}% · {u.intentos}/3 intentos</span>{/if}
+                  </div>
+                </div>
+              {/each}
+            {:else if cursoDetalle.unidades?.length}
               {#each cursoDetalle.unidades as u, i (u.id)}
                 {@const hecha = unidadesHechas.has(u.id)}
                 <div class="unidad {hecha ? 'hecha' : ''}">
-                  <div class="unidad-head">
-                    <span>Unidad {i + 1}: {u.titulo}</span>
-                    {#if hecha}<span class="check-ok">✓ Completada</span>
-                    {:else if cursoDetalle.inscripcion}<button class="btn-mini btn-ok" onclick={() => completarUnidad(u.id)}>Marcar completada</button>{/if}
-                  </div>
+                  <div class="unidad-head"><span>Unidad {i + 1}: {u.titulo}</span>{#if hecha}<span class="check-ok">✓ Completada</span>{/if}</div>
                   {#if u.contenido}<p class="desc">{u.contenido}</p>{/if}
                 </div>
               {/each}
             {/if}
 
-            {#if cursoDetalle.preguntas?.length}
+            {#if prog?.todas_aprobadas}
+              <div class="card" style="border-left:4px solid oklch(0.66 0.055 145)">
+                <h4>🎓 Examen final integrador</h4>
+                <p class="desc">Has aprobado todas las unidades. Presenta el examen final ({preguntasFinales().length} preguntas) para concluir el curso.</p>
+                {#if cursoDetalle.inscripcion?.estado !== 'aprobado'}
+                  <button class="btn-ok" onclick={() => { examenFinal = true; respuestas = {}; }}>Presentar examen final</button>
+                {:else}
+                  <div class="msg-ok">✓ Curso concluido y aprobado</div>
+                {/if}
+              </div>
+            {/if}
+
+            {#if !prog?.unidades?.length && cursoDetalle.preguntas?.length}
               <h4>Evaluación ({cursoDetalle.preguntas.length} preguntas · aprueba con {cursoDetalle.curso.calificacion_minima}%)</h4>
               {#if cursoDetalle.inscripcion}
                 <p class="curso-meta">Intentos usados: {cursoDetalle.inscripcion.intentos || 0} / {cursoDetalle.curso.max_intentos} · Calificación: {cursoDetalle.inscripcion.calificacion ?? '—'}%</p>
@@ -655,41 +712,95 @@
                   <button class="btn-ok" onclick={iniciarEvaluacion}>Iniciar evaluación</button>
                 {/if}
               {/if}
+            {/if}
 
-              {#if resultado}
-                <div class="resultado {resultado.aprobado ? 'ok' : 'fail'}">
-                  <h3>{resultado.aprobado ? '✓ Aprobado' : '✗ No aprobado'}</h3>
-                  <p>Calificación: <b>{resultado.calificacion}%</b> · Intentos: {resultado.intentos}/{resultado.max_intentos}</p>
-                  {#if resultado.pendientes_revision}<p>{resultado.pendientes_revision} pregunta(s) abiertas pendientes de revisión por el directivo.</p>{/if}
-                  <button class="btn-mini" onclick={cerrarDetalle}>Cerrar</button>
-                </div>
-              {/if}
-
-              {#if evaluacion}
-                <div class="evaluacion-form">
-                  {#each evaluacion as p, i (p.id)}
-                    <div class="pregunta">
-                      <p><b>{i + 1}.</b> {p.pregunta}</p>
-                      {#if p.tipo === 'abierta'}
-                        <textarea placeholder="Tu respuesta..." bind:value={respuestas[p.id]} rows="2"></textarea>
-                      {:else if p.tipo === 'verdadero_falso'}
-                        <label class="radio"><input type="radio" name={p.id} value="Verdadero" bind:group={respuestas[p.id]} /> Verdadero</label>
-                        <label class="radio"><input type="radio" name={p.id} value="Falso" bind:group={respuestas[p.id]} /> Falso</label>
-                      {:else}
-                        {#each p.opciones || [] as op}
-                          <label class="radio"><input type="radio" name={p.id} value={op} bind:group={respuestas[p.id]} /> {op}</label>
-                        {/each}
-                      {/if}
-                    </div>
-                  {/each}
-                  <div class="btns">
-                    <button class="btn-ok" onclick={enviarEvaluacion} disabled={enviando}>{enviando ? 'Evaluando...' : 'Enviar evaluación'}</button>
-                    <button class="btn-sec" onclick={() => evaluacion = null}>Cancelar</button>
+            {#if resultado}
+              <div class="resultado {resultado.aprobado ? 'ok' : 'fail'}">
+                <h3>{resultado.aprobado ? '✓ Aprobado' : '✗ No aprobado'}</h3>
+                <p>Calificación: <b>{resultado.calificacion}%</b> · {resultado.correctas ?? ''} correctas / {resultado.total ?? ''} · Intentos: {resultado.intentos}/{resultado.max_intentos || 3}</p>
+                {#if resultado.detalle?.length}
+                  <div class="retro">
+                    {#each resultado.detalle as d}
+                      <div class="retro-item {d.correcta ? 'bien' : 'mal'}">
+                        <b>{d.correcta ? '✓' : '✗'}</b> {d.pregunta}
+                        {#if !d.correcta && d.respuesta_correcta}<br /><small>Respuesta correcta: {d.respuesta_correcta}{d.retroalimentacion ? ' — ' + d.retroalimentacion : ''}</small>{/if}
+                      </div>
+                    {/each}
                   </div>
+                {/if}
+                {#if !resultado.aprobado}<p class="desc">💡 Repasa la unidad correspondiente y vuelve a intentarlo. El directivo puede darte una oportunidad extra si la necesitas.</p>{/if}
+                <button class="btn-mini" onclick={() => { resultado = null; if (prog) abrirCurso({ id: cursoDetalle.curso.id }); }}>Cerrar</button>
+              </div>
+            {/if}
+
+            {#if evaluacion}
+              <div class="evaluacion-form">
+                {#each evaluacion as p, i (p.id)}
+                  <div class="pregunta">
+                    <p><b>{i + 1}.</b> {p.pregunta}</p>
+                    {#if p.tipo === 'abierta'}
+                      <textarea placeholder="Tu respuesta..." bind:value={respuestas[p.id]} rows="2"></textarea>
+                    {:else if p.tipo === 'verdadero_falso'}
+                      <label class="radio"><input type="radio" name={p.id} value="Verdadero" bind:group={respuestas[p.id]} /> Verdadero</label>
+                      <label class="radio"><input type="radio" name={p.id} value="Falso" bind:group={respuestas[p.id]} /> Falso</label>
+                    {:else}
+                      {#each p.opciones || [] as op}
+                        <label class="radio"><input type="radio" name={p.id} value={op} bind:group={respuestas[p.id]} /> {op}</label>
+                      {/each}
+                    {/if}
+                  </div>
+                {/each}
+                <div class="btns">
+                  <button class="btn-ok" onclick={enviarEvaluacion} disabled={enviando}>{enviando ? 'Evaluando...' : 'Enviar evaluación'}</button>
+                  <button class="btn-sec" onclick={() => evaluacion = null}>Cancelar</button>
                 </div>
-              {/if}
-            {:else}
-              <div class="msg-error">Este curso aún no tiene evaluación.</div>
+              </div>
+            {/if}
+
+            {#if examenUnidad}
+              <div class="evaluacion-form">
+                <h4>Examen — {examenUnidad.titulo} (mínimo 80 para aprobar, máx. 3 intentos)</h4>
+                {#each preguntasDeUnidad(examenUnidad.id) as p, i (p.id)}
+                  <div class="pregunta">
+                    <p><b>{i + 1}.</b> {p.pregunta}</p>
+                    {#if p.tipo === 'verdadero_falso'}
+                      <label class="radio"><input type="radio" name={'u'+p.id} value="Verdadero" bind:group={respuestas[p.id]} /> Verdadero</label>
+                      <label class="radio"><input type="radio" name={'u'+p.id} value="Falso" bind:group={respuestas[p.id]} /> Falso</label>
+                    {:else}
+                      {#each p.opciones || [] as op}
+                        <label class="radio"><input type="radio" name={'u'+p.id} value={op} bind:group={respuestas[p.id]} /> {op}</label>
+                      {/each}
+                    {/if}
+                  </div>
+                {/each}
+                <div class="btns">
+                  <button class="btn-ok" onclick={enviarExamenUnidad} disabled={enviando}>{enviando ? 'Evaluando...' : 'Enviar examen'}</button>
+                  <button class="btn-sec" onclick={() => { examenUnidad = null; respuestas = {}; }}>Cancelar</button>
+                </div>
+              </div>
+            {/if}
+
+            {#if examenFinal}
+              <div class="evaluacion-form">
+                <h4>Examen final integrador (mínimo {cursoDetalle.curso.calificacion_minima || 80}% para aprobar)</h4>
+                {#each preguntasFinales() as p, i (p.id)}
+                  <div class="pregunta">
+                    <p><b>{i + 1}.</b> {p.pregunta}</p>
+                    {#if p.tipo === 'verdadero_falso'}
+                      <label class="radio"><input type="radio" name={'f'+p.id} value="Verdadero" bind:group={respuestas[p.id]} /> Verdadero</label>
+                      <label class="radio"><input type="radio" name={'f'+p.id} value="Falso" bind:group={respuestas[p.id]} /> Falso</label>
+                    {:else}
+                      {#each p.opciones || [] as op}
+                        <label class="radio"><input type="radio" name={'f'+p.id} value={op} bind:group={respuestas[p.id]} /> {op}</label>
+                      {/each}
+                    {/if}
+                  </div>
+                {/each}
+                <div class="btns">
+                  <button class="btn-ok" onclick={enviarExamenFinal} disabled={enviando}>{enviando ? 'Evaluando...' : 'Enviar examen final'}</button>
+                  <button class="btn-sec" onclick={() => { examenFinal = false; respuestas = {}; }}>Cancelar</button>
+                </div>
+              </div>
             {/if}
 
             {#if esAdmin && cursoDetalle.curso}
@@ -838,4 +949,16 @@
   .recomendados { border-left: 4px solid oklch(0.42 0.068 218); }
   .ficha-item { font-size: .88rem; color: oklch(0.45 0.03 85); margin: .5rem 0; padding: .5rem .7rem; background: oklch(0.97 0.015 85); border-radius: 8px; }
   .ficha-item b { color: oklch(0.3 0.05 222); }
+  .unidad.estado-aprobada { background: oklch(0.97 0.02 140); }
+  .unidad.estado-bloqueada { opacity: .6; }
+  .unidad.estado-no_aprobada { border-left: 3px solid oklch(0.55 0.2 27); }
+  .badge-uni { font-size: .72rem; font-weight: 700; padding: .15rem .55rem; border-radius: 999px; background: oklch(0.94 0.025 80); }
+  .u-aprobada { background: oklch(0.93 0.025 140); color: oklch(0.4 0.08 150); }
+  .u-disponible { background: oklch(0.93 0.025 140); color: oklch(0.42 0.068 218); }
+  .u-bloqueada { background: oklch(0.94 0.025 80); color: oklch(0.5 0.03 85); }
+  .u-no_aprobada { background: oklch(0.94 0.05 40); color: oklch(0.45 0.1 40); }
+  .retro { margin-top: .8rem; max-height: 300px; overflow-y: auto; }
+  .retro-item { font-size: .82rem; padding: .4rem .6rem; border-radius: 6px; margin-bottom: .3rem; }
+  .retro-item.bien { background: oklch(0.97 0.02 140); }
+  .retro-item.mal { background: oklch(0.97 0.02 40); }
 </style>

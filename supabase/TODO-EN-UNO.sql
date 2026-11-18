@@ -637,3 +637,29 @@ alter table public.academia_cursos add column if not exists temario text;
 alter table public.academia_cursos add column if not exists bibliografia text;
 alter table public.academia_cursos add column if not exists revisor text;
 alter table public.academia_cursos add column if not exists vigencia_anios integer not null default 2;
+
+-- ================= ACADEMIA: exámenes por unidad y banco de reactivos =================
+alter table public.academia_preguntas add column if not exists dificultad text not null default 'medio';
+alter table public.academia_preguntas add column if not exists competencia text;
+alter table public.academia_preguntas add column if not exists retroalimentacion text;
+alter table public.academia_preguntas add column if not exists caso text;
+
+create table if not exists public.academia_unidad_intentos (
+  id uuid primary key default gen_random_uuid(),
+  inscripcion_id uuid not null references public.academia_inscripciones (id) on delete cascade,
+  unidad_id uuid not null references public.academia_unidades (id) on delete cascade,
+  empleado_id uuid not null references public.perfiles (id) on delete cascade,
+  calificacion numeric not null,
+  correctas integer not null default 0,
+  incorrectas integer not null default 0,
+  total integer not null default 0,
+  intentos integer not null default 1,
+  estado text not null default 'no_aprobado' check (estado in ('no_aprobado','aprobado')),
+  respuestas jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists acad_uni_int_idx on public.academia_unidad_intentos (inscripcion_id, unidad_id);
+alter table public.academia_unidad_intentos enable row level security;
+
+alter table public.academia_inscripciones add column if not exists unidades_aprobadas jsonb not null default '[]'::jsonb;
+alter table public.academia_inscripciones add column if not exists examen_final_estado text not null default 'bloqueado' check (examen_final_estado in ('bloqueado','disponible','aprobado','reprobado'));

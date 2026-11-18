@@ -3776,6 +3776,398 @@ if (existsSync(webBuild)) {
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(webBuild, 'index.html')));
 }
 
+
+// ---------- Academia: exámenes por unidad, examen final y banco de contenido ----------
+const MEJOR_CALIF_UNIDAD = async (inscripcionId) => {
+  const { data } = await supabase.from('academia_unidad_intentos').select('unidad_id, calificacion, estado').eq('inscripcion_id', inscripcionId);
+  const m = {};
+  for (const i of data || []) if (!m[i.unidad_id] || Number(i.calificacion) > Number(m[i.unidad_id].calificacion)) m[i.unidad_id] = i;
+  return m;
+};
+
+function calificarPreguntas(preguntas, respuestas) {
+  let ok = 0, tot = 0; const det = [];
+  for (const p of preguntas) {
+    const pts = Number(p.puntos) || 1; tot += pts;
+    const r = String(respuestas?.[p.id] ?? '');
+    const bien = r === String(p.respuesta_correcta);
+    if (bien) ok += pts;
+    det.push({ id: p.id, pregunta: p.pregunta, correcta: bien, respuesta_correcta: p.respuesta_correcta, retroalimentacion: p.retroalimentacion || null, opciones: p.opciones });
+  }
+  return { calificacion: tot ? Math.round((ok / tot) * 1000) / 10 : 0, correctas: ok, total: tot, detalle: det };
+}
+
+// Detalle de curso con estado de cada unidad para el empleado
+app.get('/api/academia/curso/:id/progreso', requireUser, async (req, res) => {
+  try {
+    const ins = await inscripcionDe(req.params.id, req.user.id);
+    if (!ins) return res.json({ inscripcion: null });
+    const [{ data: unidades }, intentos] = await Promise.all([
+      supabase.from('academia_unidades').select('*').eq('curso_id', req.params.id).order('orden'),
+      MEJOR_CALIF_UNIDAD(ins.id)
+    ]);
+    const aprobadas = new Set(ins.unidades_aprobadas || []);
+    const estados = (unidades || []).map((u, i) => {
+      const t = intentos[u.id];
+      let estado = 'no_iniciada';
+      if (aprobadas.has(u.id) || t?.estado === 'aprobado') estado = 'aprobada';
+      else if (t) estado = t.calificacion >= 80 ? 'aprobada' : 'no_aprobada';
+      else {
+        const prevAprobada = i === 0 || aprobadas.has((unidades[i - 1] || {}).id) || intentos[(unidades[i - 1] || {})?.id]?.estado === 'aprobado';
+        estado = prevAprobada ? 'disponible' : 'bloqueada';
+      }
+      return { ...u, estado, mejor_calificacion: t?.calificacion ?? null, intentos: t?.intentos ?? 0 };
+    });
+    const todasAprobadas = estados.length > 0 && estados.every((u) => u.estado === 'aprobada');
+    res.json({ inscripcion: ins, unidades: estados, todas_aprobadas: todasAprobadas, examen_final_estado: todasAprobadas ? 'disponible' : ins.examen_final_estado });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Examen de una unidad (mínimo 80, máx 3 intentos, unidades en orden)
+app.post('/api/academia/examen-unidad', requireUser, async (req, res) => {
+  try {
+    const { curso_id, unidad_id, respuestas } = req.body || {};
+    const ins = await inscripcionDe(curso_id, req.user.id);
+    if (!ins) return res.status(404).json({ error: 'No estás inscrito en este curso' });
+    const [{ data: unidades }, { data: preguntas }, previos] = await Promise.all([
+      supabase.from('academia_unidades').select('*').eq('curso_id', curso_id).order('orden'),
+      supabase.from('academia_preguntas').select('*').eq('curso_id', curso_id).eq('unidad_id', unidad_id),
+      supabase.from('academia_unidad_intentos').select('calificacion, intentos').eq('inscripcion_id', ins.id).eq('unidad_id', unidad_id).order('created_at', { ascending: false })
+    ]);
+    const idx = (unidades || []).findIndex((u) => u.id === unidad_id);
+    if (idx < 0) return res.status(400).json({ error: 'Unidad inválida' });
+    // Bloqueo secuencial: todas las anteriores deben estar aprobadas
+    const { data: intentosPrev } = await supabase.from('academia_unidad_intentos').select('unidad_id, estado').eq('inscripcion_id', ins.id);
+    const aprobadas = new Set([...(ins.unidades_aprobadas || []), ...(intentosPrev || []).filter(i => i.estado === 'aprobado').map(i => i.unidad_id)]);
+    for (let i = 0; i < idx; i++) {
+      if (!aprobadas.has(unidades[i].id)) return res.status(400).json({ error: `Debes aprobar la unidad ${i + 1} antes de continuar`, bloqueada: true });
+    }
+    const lista = preguntas || [];
+    if (!lista.length) return res.status(400).json({ error: 'Esta unidad aún no tiene examen' });
+    const intentosPrevios = (previos || []).length;
+    if (intentosPrevios >= 3) {
+      await notificarAcademia(req.user.id, `Agotaste los intentos del examen de una unidad. El directivo revisará tu caso.`, { curso_id, unidad_id });
+      return res.status(400).json({ error: 'Sin intentos restantes en esta unidad', sin_intentos: true });
+    }
+    const r = calificarPreguntas(lista, respuestas);
+    const aprobado = r.calificacion >= 80;
+    const nuevoIntentos = intentosPrevios + 1;
+    await supabase.from('academia_unidad_intentos').insert({
+      inscripcion_id: ins.id, unidad_id, empleado_id: req.user.id,
+      calificacion: r.calificacion, correctas: r.correctas, incorrectas: r.total - r.correctas,
+      total: lista.length, intentos: nuevoIntentos, estado: aprobado ? 'aprobado' : 'no_aprobado',
+      respuestas: Object.fromEntries(lista.map(p => [p.id, String(respuestas?.[p.id] ?? '')]))
+    });
+    let nuevasAprobadas = [...aprobadas];
+    if (aprobado && !aprobadas.has(unidad_id)) nuevasAprobadas.push(unidad_id);
+    const { count: totalUnidades } = await supabase.from('academia_unidades').select('id', { count: 'exact', head: true }).eq('curso_id', curso_id);
+    const progreso = totalUnidades ? Math.round((nuevasAprobadas.length / totalUnidades) * 100) : ins.progreso;
+    const todas = totalUnidades > 0 && nuevasAprobadas.length >= totalUnidades;
+    await supabase.from('academia_inscripciones').update({
+      unidades_aprobadas: nuevasAprobadas, progreso,
+      estado: ins.estado === 'asignado' ? 'en_proceso' : ins.estado,
+      examen_final_estado: todas ? 'disponible' : ins.examen_final_estado
+    }).eq('id', ins.id);
+    broadcast({ tipo: 'academia', datos: { curso_id, empleado_id: req.user.id, unidad: idx + 1, aprobado } });
+    res.json({ calificacion: r.calificacion, aprobado, correctas: Math.round(r.correctas), incorrectas: Math.round(r.total - r.correctas), total: lista.length, intentos: nuevoIntentos, max_intentos: 3, progreso, todas_aprobadas: todas, detalle: r.detalle });
+  } catch (e) { console.error('examen-unidad:', e); res.status(500).json({ error: 'Error al evaluar' }); }
+});
+
+// Examen final integrador (preguntas sin unidad asignada; si no hay, usa todas)
+app.post('/api/academia/examen-final', requireUser, async (req, res) => {
+  try {
+    const { curso_id, respuestas } = req.body || {};
+    const ins = await inscripcionDe(curso_id, req.user.id);
+    if (!ins) return res.status(404).json({ error: 'No estás inscrito' });
+    const { data: unidades } = await supabase.from('academia_unidades').select('id').eq('curso_id', curso_id);
+    const { data: aprobadasRows } = await supabase.from('academia_unidad_intentos').select('unidad_id').eq('inscripcion_id', ins.id).eq('estado', 'aprobado');
+    const aprobadas = new Set([...(ins.unidades_aprobadas || []), ...(aprobadasRows || []).map(i => i.unidad_id)]);
+    if ((unidades || []).length && aprobadas.size < unidades.length) {
+      return res.status(400).json({ error: 'Debes aprobar todas las unidades antes del examen final', bloqueada: true });
+    }
+    const { data: finales } = await supabase.from('academia_preguntas').select('*').eq('curso_id', curso_id).is('unidad_id', null);
+    const lista = (finales && finales.length ? finales : (await supabase.from('academia_preguntas').select('*').eq('curso_id', curso_id)).data) || [];
+    if (!lista.length) return res.status(400).json({ error: 'Este curso no tiene examen final' });
+    if (ins.intentos >= 3) return res.status(400).json({ error: 'Sin intentos restantes en el examen final', sin_intentos: true });
+    const { data: curso } = await supabase.from('academia_cursos').select('*').eq('id', curso_id).single();
+    const r = calificarPreguntas(lista, respuestas);
+    const aprobado = r.calificacion >= Number(curso.calificacion_minima || 80);
+    const nuevoIntentos = ins.intentos + 1;
+    await supabase.from('academia_inscripciones').update({
+      intentos: nuevoIntentos, calificacion: aprobado ? r.calificacion : (ins.calificacion ?? r.calificacion),
+      progreso: aprobado ? 100 : ins.progreso,
+      estado: aprobado ? 'aprobado' : (nuevoIntentos >= 3 ? 'reprobado' : ins.estado),
+      examen_final_estado: aprobado ? 'aprobado' : 'reprobado',
+      completado_at: aprobado ? new Date().toISOString() : ins.completado_at
+    }).eq('id', ins.id);
+    await supabase.from('academia_evaluaciones').insert({
+      inscripcion_id: ins.id, curso_id, empleado_id: req.user.id,
+      calificacion: r.calificacion, porcentaje: r.calificacion, respuestas: Object.fromEntries(lista.map(p => [p.id, String(respuestas?.[p.id] ?? '')])),
+      intentos: nuevoIntentos
+    });
+    if (aprobado) {
+      const folio = `AGE-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900000) + 100000)}`;
+      await supabase.from('academia_constancias').insert({ inscripcion_id: ins.id, empleado_id: req.user.id, curso_id, folio, calificacion: r.calificacion, horas: curso.horas }).catch(() => {});
+      await notificarAcademia(req.user.id, `¡Felicidades! Concluiste y aprobaste "${curso.titulo}" con ${r.calificacion}%. Tu constancia está en Mi Formación.`, { curso_id });
+      broadcast({ tipo: 'academia', datos: { curso_id, empleado_id: req.user.id, final: true } });
+    }
+    res.json({ calificacion: r.calificacion, aprobado, intentos: nuevoIntentos, max_intentos: 3, detalle: r.detalle });
+  } catch (e) { console.error('examen-final:', e); res.status(500).json({ error: 'Error' }); }
+});
+
+// ---------- Sembrado de contenido académico por categoría ----------
+const BANCO_PREGUNTAS = {
+  gerontologia: [
+    ['La gerontología se define como el estudio de:', ['La vejez únicamente','El envejecimiento en sus aspectos biológicos, psicológicos y sociales','Las enfermedades del corazón','La pediatría'], 1, 'La gerontología es multidisciplinaria y estudia el envejecimiento de forma integral.'],
+    ['La Valoración Gerontológica Integral (VGI) sirve para:', ['Cobrar más por los servicios','Conocer la situación funcional, cognitiva, afectiva y social del adulto mayor','Diagnosticar enfermedades','Reemplazar al médico'], 1, 'La VGI es una herramienta de valoración multidimensional, no diagnóstica.'],
+    ['El envejecimiento se caracteriza por:', ['Un proceso homogéneo en todas las personas','Un proceso heterogéneo e individual','Una enfermedad','Una etapa sin cambios'], 1, 'Cada persona envejece de manera distinta según genética, ambiente y hábitos.'],
+    ['La autonomía en el adulto mayor se refiere a:', ['Depender totalmente de otros','La capacidad de decidir y ejecutar acciones por sí mismo','No tener familia','Vivir solo'], 1, 'Autonomía es la capacidad de autodeterminación y ejecución de actividades.'],
+    ['Un determinante social del envejecimiento es:', ['La herencia genética únicamente','Las condiciones socioeconómicas y el entorno','El color de piel','La estatura'], 1, 'Los determinantes sociales incluyen economía, educación, vivienda y red de apoyo.'],
+    ['La atención centrada en la persona implica:', ['Atender solo las órdenes médicas','Considerar preferencias, valores y autonomía del adulto mayor','Ignorar a la familia','Estandarizar todos los cuidados'], 1, 'Pone a la persona y sus preferencias al centro del cuidado.'],
+    ['La calidad de vida en la vejez se relaciona con:', ['Únicamente la salud física','Bienestar físico, psicológico, social y ambiental','Solo el dinero','La apariencia'], 1, 'Es multidimensional.'],
+    ['Una teoría del envejecimiento es:', ['La idea de que todos envejecen igual','El desgaste biológico programado','Una moda','Una religión'], 1, 'Las teorías explican causas biológicas, psicológicas y sociales del envejecimiento.'],
+    ['El envejecimiento activo promueve:', ['El sedentarismo','La participación continua en la vida social, económica y cultural','El aislamiento','La dependencia'], 1, 'Busca optimizar oportunidades de salud, participación y seguridad.'],
+    ['La gerontología social estudia:', ['Solo las células','Las relaciones del adulto mayor con su familia, comunidad y sociedad','Los huesos','Los medicamentos'], 1, 'Analiza el contexto social del envejecimiento.'],
+    ['Falso o verdadero: la vejez es una enfermedad.', ['Verdadero','Falso'], 1, 'La vejez es una etapa del ciclo vital, no una enfermedad.'],
+    ['La independencia funcional se mide principalmente por:', ['La edad','La capacidad de realizar actividades básicas e instrumentales de la vida diaria','El peso','La presión arterial'], 1, 'Se evalúa con escalas de AVD/AIVD.']
+  ],
+  cuidados: [
+    ['La higiene personal del adulto mayor tiene como objetivo principal:', ['Embellecer únicamente','Mantener la salud de la piel, prevenir infecciones y promover confort','Perfumar','Cumplir un horario'], 1, 'La higiene previene infecciones, lesiones y mejora el bienestar.'],
+    ['Al realizar un baño en cama se debe:', ['Usar agua muy caliente','Verificar la temperatura del agua y proteger la privacidad','Dejar al paciente solo','Usar productos irritantes'], 1, 'Seguridad térmica y dignidad son prioritarias.'],
+    ['Una lesión por presión se previene principalmente con:', ['Dejar al paciente inmóvil','Cambios posturales frecuentes y alivio de presión','Más medicamentos','Pelar la piel'], 1, 'La presión sostenida sobre prominencias óseas causa úlceras.'],
+    ['La movilización segura de un paciente encamado requiere:', ['Hacerlo solo sin ayuda','Técnica adecuada, apoyo del equipo y protección del cuidador','Tirar bruscamente','Usar fuerza máxima'], 1, 'Previene lesiones en paciente y cuidador.'],
+    ['La deshidratación en adultos mayores es frecuente porque:', ['Beben demasiado','La sensación de sed disminuye con la edad','Les gusta el agua','Toman suplementos'], 1, 'El reflejo de sed se atenúa; hay que ofrecer líquidos con frecuencia.'],
+    ['Al alimentar a un paciente con disfagia se debe:', ['Dar líquidos en gran cantidad','Ofrecer consistencias adaptadas y posición erguida','Apresurarlo','Darle de comer acostado'], 1, 'Reduce el riesgo de aspiración.'],
+    ['Los cambios posturales se recomiendan cada:', ['4-6 horas','2 horas en pacientes de riesgo','12 horas','Una vez al día'], 1, 'Cada 2 horas se alternan decúbitos para prevenir úlceras.'],
+    ['La continencia urinaria se refiere a:', ['No orinar nunca','La capacidad de controlar la micción','Orinar de noche','Usar pañal'], 1, 'La incontinencia es su pérdida de control.'],
+    ['Falso o verdadero: el adulto mayor encamado no necesita higiene bucal.', ['Verdadero','Falso'], 1, 'La higiene bucal previene neumonías y candidiasis.'],
+    ['La transferencia cama-silla debe realizarse:', ['Con el paciente de pie solo','Con técnica de pivote y ayuda de dos personas si es necesario','Arrastrando al paciente','En 30 segundos'], 1, 'La técnica correcta protege a ambos.'],
+    ['Una señal de alarma durante la alimentación es:', ['Masticar despacio','Tos o atragantamiento','Sonreír','Pedir agua'], 1, 'La tos indica posible aspiración.'],
+    ['La comodidad del paciente incluye:', ['Temperatura agradable, ropa limpia y posición adecuada','Solo la cama','Luces fuertes','Silencio total'], 1, 'El confort integral favorece la recuperación.']
+  ],
+  enfermedades: [
+    ['La diabetes mellitus en el adulto mayor se caracteriza por:', ['Glucosa elevada en sangre','Presión baja','Fiebre','Sarro dental'], 0, 'La DM es hiperglucemia crónica.'],
+    ['Una complicación frecuente de la hipertensión no controlada es:', ['Mejor visión','Daño cardiovascular y renal','Crecimiento de uñas','Mayor apetito'], 1, 'La HTA daña corazón, cerebro, riñón y ojos.'],
+    ['La enfermedad de Alzheimer afecta principalmente:', ['Los músculos','La memoria y funciones cognitivas','Los dientes','La audición'], 1, 'Es una demencia neurodegenerativa.'],
+    ['Los signos de un accidente cerebrovascular incluyen:', ['Dolor de muelas','Debilidad de un lado del cuerpo y dificultad para hablar (FAST)','Comezón','Hambre'], 1, 'Se reconoce con la regla FAST: cara, brazos, habla, tiempo.'],
+    ['La osteoporosis aumenta el riesgo de:', ['Caries','Fracturas por caídas','Resfriados','Estrías'], 1, 'Los huesos pierden densidad y se fracturan con facilidad.'],
+    ['La sarcopenia es:', ['Pérdida de masa muscular relacionada con la edad','Un tipo de diabetes','Una demencia','Una fractura'], 0, 'Es la pérdida progresiva de músculo y fuerza.'],
+    ['La polifarmacia se refiere a:', ['Tomar un solo medicamento','El uso de múltiples medicamentos simultáneos','No tomar nada','Solo vitaminas'], 1, 'Aumenta el riesgo de interacciones y efectos adversos.'],
+    ['Un síntoma de hipotensión ortostática es:', ['Mareos al incorporarse','Dolor de cabeza intenso','Sarpullido','Fiebre'], 0, 'El descenso brusco de presión al levantarse causa mareo.'],
+    ['La enfermedad renal crónica en el adulto mayor se detecta con:', ['La vista','Análisis de sangre y orina','El peso solamente','La talla'], 1, 'Creatinina, urea y depuración glomerular la evidencian.'],
+    ['La depresión en la vejez se manifiesta con:', ['Euforia constante','Tristeza persistente, pérdida de interés y cambios de sueño/apetito','Hiperactividad','Mejor memoria'], 1, 'Es frecuente y subdiagnosticada en mayores.'],
+    ['Falso o verdadero: toda persona con demencia pierde la capacidad de comunicarse.',['Verdadero','Falso'],1,'Aunque la comunicación cambia, siempre hay formas de conectar.'],
+    ['El dolor crónico en el adulto mayor debe tratarse porque:', ['No existe','Impacta la funcionalidad, el ánimo y la calidad de vida','Es normal ignorarlo','Solo se quita con cirugía'], 1, 'El dolor no tratado genera dependencia y sufrimiento.']
+  ],
+  fisioterapia: [
+    ['El objetivo principal de la fisioterapia geriátrica es:', ['Curar enfermedades','Preservar y mejorar la funcionalidad, movilidad y autonomía','Reemplazar al médico','Eliminar el dolor siempre'], 1, 'Busca máxima independencia funcional.'],
+    ['El entrenamiento de equilibrio previene:', ['La desnutrición','Las caídas','La sordera','Las arrugas'], 1, 'Mejorar el equilibrio reduce el riesgo de caídas.'],
+    ['La reeducación de la marcha busca:', ['Caminar más rápido siempre','Recuperar un patrón de marcha seguro y funcional','Usar solo silla de ruedas','No caminar nunca'], 1, 'Se corrigen compensaciones y se gana seguridad.'],
+    ['El ejercicio terapéutico en mayores debe ser:', ['Intenso y exhaustivo','Adaptado a la condición y capacidad de cada persona','Solo por las mañanas','Idéntico para todos'], 1, 'La prescripción es individualizada.'],
+    ['Un auxiliar de marcha como la andadera se usa para:', ['Decorar','Brindar apoyo y estabilidad al caminar','Dormir','Comer'], 1, 'Amplía la base de soporte y da confianza.'],
+    ['La terapia ocupacional en geriatría se enfoca en:', ['Ejercicios de fuerza únicamente','Actividades de la vida diaria y participación significativas','Solo ejercicios respiratorios','Radiografías'], 1, 'Restablece la capacidad de participar en actividades cotidianas.'],
+    ['La estimulación sensoriomotriz trabaja:', ['Solo la vista','Integración de los sentidos con el movimiento','Solo el oído','La memoria exclusivamente'], 1, 'Coordina input sensorial y respuesta motora.'],
+    ['Antes de un programa de ejercicio en un adulto mayor se debe:', ['Saltar el calentamiento','Valorar signos vitales, dolor y capacidad funcional','Dar el mismo ejercicio a todos','No registrar nada'], 1, 'La valoración previa garantiza seguridad.'],
+    ['La rehabilitación domiciliaria tiene la ventaja de:', ['Ser más cara siempre','Contextualizar la terapia en el entorno real del paciente','No tener valor','Ser solo para médicos'], 1, 'Permite intervenir donde el paciente vive y se desenvuelve.'],
+    ['La flexibilidad articular se refiere a:', ['La fuerza muscular','El rango de movimiento de una articulación','La resistencia','La velocidad'], 1, 'Se mejora con estiramientos y movilizaciones.'],
+    ['Falso o verdadero: un paciente con demencia no puede beneficiarse de fisioterapia.',['Verdadero','Falso'],1,'La movilidad y el equilibrio también son entrenables en demencias.'],
+    ['La marcha segura requiere principalmente:', ['Zapatos nuevos','Buena fuerza de miembros inferiores, equilibrio y entorno libre de obstáculos','Caminar rápido','Ojos cerrados'], 1, 'Factores intrínsecos y extrínsecos se combinan.']
+  ],
+  salud_mental: [
+    ['La estimulación cognitiva consiste en:', ['Ejercicios mentales que mantienen activas las funciones cognitivas','Dormir mucho','Ver televisión pasivamente','Comer dulce'], 0, 'Busca mantener memoria, atención y lenguaje.'],
+    ['Un ejercicio de orientación temporal consiste en:', ['Preguntar la fecha, día y lugar','Cerrar los ojos','Correr','No hablar'], 0, 'Refuerza la orientación en tiempo y espacio.'],
+    ['La comunicación con personas con demencia debe ser:', ['Con frases largas y complejas','Simple, calmada y con contacto visual','Enojada','Por gritos'], 1, 'La claridad y el tono favorecen la comprensión.'],
+    ['La inteligencia emocional del cuidador ayuda a:', ['Ignorar emociones','Manejar el estrés y responder con empatía','No sentir nada','Trabajar más horas'], 1, 'Permite regular las propias emociones en situaciones difíciles.'],
+    ['El aislamiento social en el adulto mayor aumenta el riesgo de:', ['Mejor salud','Depresión y deterioro cognitivo','Fuerza muscular','Buena memoria'], 1, 'La conexión social es un factor protector.'],
+    ['El manejo del duelo implica:', ['Olvidar al ser querido','Acompañar el proceso de pérdida con respeto y tiempo','Reemplazar rápido','Prohibir llorar'], 1, 'El duelo es un proceso natural que requiere acompañamiento.'],
+    ['Las actividades recreativas terapéuticas buscan:', ['Solo entretener','Estimular cognición, estado de ánimo y socialización','Gastar dinero','Reemplazar la medicina'], 1, 'Tienen propósito terapéutico además del ocio.'],
+    ['Un signo de ansiedad en el adulto mayor puede ser:', ['Calma total','Inquietud, tensión y dificultad para concentrarse','Sueño profundo','Apetito excesivo'], 1, 'La ansiedad se manifiesta en múltiples síntomas.'],
+    ['La memoria en el envejecimiento normal muestra:', ['Pérdida total','Cambios leves que no interfieren con la vida diaria','Olvido de todo','Mejora universal'], 1, 'El envejecimiento cognitivo normal difiere de la demencia.'],
+    ['La validación emocional consiste en:', ['Decir que no sienta','Reconocer y aceptar los sentimientos de la persona','Ignorar el llanto','Reírse'], 1, 'Validar no es estar de acuerdo, es reconocer la emoción.'],
+    ['Falso o verdadero: las personas con demencia no entienden el tono de voz.',['Verdadero','Falso'],1,'Aunque olvidan palabras, perciben el tono y la actitud.'],
+    ['La prevención de la depresión en mayores incluye:', ['Aislamiento','Actividad social, propósito y estimulación','Sedentarismo','Soledad'], 1, 'Los factores protectores reducen el riesgo.']
+  ],
+  nutricion: [
+    ['Los requerimientos nutricionales en el adulto mayor tienden a:', ['Ser menores en calorías por menor actividad','Ser mayores en proteínas por riesgo de sarcopenia','Ser idénticos a los de un niño','No existir'], 1, 'La proteína es clave contra la sarcopenia.'],
+    ['La desnutrición geriátrica se detecta con:', ['La talla solamente','Evaluación del estado nutricional, peso y ingesta','El color de piel','La presión arterial'], 1, 'Requiere valoración integral.'],
+    ['En la disfagia se recomienda:', ['Líquidos abundantes','Modificaciones de consistencia y posición erguida','Comer rápido','Solo alimentos duros'], 1, 'Reduce el riesgo de aspiración.'],
+    ['La hidratación en personas mayores es importante porque:', ['No tienen sed','Su cuerpo retiene menos agua y la sed se atenúa','Beben sola','El agua engorda'], 0, 'La deshidratación es un riesgo frecuente.'],
+    ['Una dieta para hipertensión debe ser:', ['Alta en sodio','Baja en sodio y rica en frutas y verduras','Solo carne','Sin verduras'], 1, 'El sodio eleva la presión arterial.'],
+    ['La sarcopenia se combate nutricionalmente con:', ['Azúcar','Proteína suficiente y actividad física','Solo líquidos','Ayuno'], 1, 'Proteína + ejercicio preservan músculo.'],
+    ['La evaluación nutricional incluye:', ['Solo el peso','Antropometría, ingesta, laboratorio y condición clínica','La opinión','La talla del zapato'], 1, 'Es multidimensional.'],
+    ['Los suplementos nutricionales deben usarse:', ['Siempre','Solo cuando exista indicación profesional','En lugar de comida','Sin revisar'], 1, 'Requieren evaluación y supervisión.'],
+    ['La seguridad alimentaria en el hogar implica:', ['Dejar alimentos a temperatura ambiente','Manipulación higiénica y conservación correcta','Recalentar varias veces','Guardar crudo con cocido'], 1, 'Previene intoxicaciones.'],
+    ['La obesidad en el adulto mayor puede asociarse a:', ['Mejor salud siempre','Mayor riesgo metabólico y funcional','Mayor fuerza','Menos caídas'], 1, 'El exceso de peso también genera riesgos.'],
+    ['Falso o verdadero: el adulto mayor necesita menos proteína que un joven.',['Verdadero','Falso'],1,'Necesita igual o más proteína por el riesgo de sarcopenia.'],
+    ['Un menú saludable para un adulto mayor debe incluir:', ['Solo líquidos','Proteína, fibra, frutas, verduras y líquidos suficientes','Solo frituras','Nada de carbohidratos'], 1, 'Equilibrio y densidad nutricional.']
+  ],
+  enfermeria: [
+    ['La valoración clínica básica incluye:', ['Solo la presión','Signos vitales, dolor, estado general y observación','Solo el peso','La temperatura ambiente'], 1, 'Evalúa el estado de salud integral.'],
+    ['La administración segura de medicamentos requiere:', ['Darlos a cualquier hora','Verificar paciente, medicamento, dosis y hora correctos','Partirlos siempre','Guardarlos en la cama'], 1, 'Los cinco correctos garantizan seguridad.'],
+    ['Un signo de alarma en signos vitales es:', ['Tensión 120/80','Fiebre alta con confusión','Pulso 70','Respiración tranquila'], 1, 'Fiebre + confusión puede indicar infección grave.'],
+    ['El control de glucosa capilar lo realiza:', ['Cualquier persona','Personal capacitado y autorizado','Solo el médico','Los familiares siempre'], 1, 'Requiere capacitación específica.'],
+    ['La prevención de infecciones incluye:', ['No lavarse','Higiene de manos y manejo aséptico','Compartir utensilios','Dejar heridas abiertas'], 1, 'La higiene es la medida principal.'],
+    ['El registro de notas de evolución sirve para:', ['Gastar papel','Documentar la evolución del paciente y continuidad de cuidados','Hacer dibujos','Nada'], 1, 'Garantiza continuidad y comunicación del equipo.'],
+    ['La seguridad del paciente se basa en:', ['La velocidad','Identificación correcta y verificación de procedimientos','El silencio','La prisa'], 1, 'Evita errores de identidad y tratamiento.'],
+    ['Los cuidados de una herida incluyen:', ['Dejarla sucia','Limpieza, protección y vigilancia de signos de infección','Poner tierra','No tocarla nunca'], 1, 'Previene complicaciones.'],
+    ['La continuidad de cuidados significa:', ['Que cada turno invente','Que la información y el plan se transmitan correctamente','Cambiar todo','Olvidar al paciente'], 1, 'Asegura que el paciente reciba cuidado consistente.'],
+    ['Un parámetro de vigilancia importante en encamados es:', ['La presión arterial solamente','Estado de la piel y puntos de presión','Solo el humor','La talla de zapatos'], 1, 'La piel es vulnerable en inmovilidad.'],
+    ['Falso o verdadero: el personal no autorizado puede administrar medicamentos.',['Verdadero','Falso'],1,'Solo personal capacitado y autorizado por la institución.'],
+    ['La identificación de signos de alarma permite:', ['Ignorar','Actuar tempranamente ante complicaciones','Esperar','Medicar sin orden'], 1, 'La detección temprana salva vidas.']
+  ],
+  emergencias: [
+    ['La RCP básica consiste en:', ['Solo llamar al 911','Compresiones torácicas y ventilaciones si está capacitado','Dar agua','Mover al paciente'], 1, 'Mantiene la circulación y oxigenación.'],
+    ['Ante una caída, primero se debe:', ['Levantar al paciente de inmediato','Evaluar si hay lesión y no mover si se sospecha fractura','Darle comida','Ignorar'], 1, 'La evaluación previa evita agravar lesiones.'],
+    ['La regla FAST para detectar EVC se refiere a:', ['Comida, Agua, Sueño, Tiempo','Cara, Brazos, Habla, Tiempo','Fiebre, Alegría, Sudor, Tos','Fuerza, Agua, Sal, Té'], 1, 'Face, Arms, Speech, Time.'],
+    ['El atragantamiento se maneja con:', ['Golpes en la espalda si no puede toser','Darle agua','Ponerlo acostado','Esperar'], 0, 'Si no tose, se aplican maniobras de desobstrucción.'],
+    ['El número de emergencias en México es:', ['911','115','060','100'], 0, '911 es la línea nacional de emergencia.'],
+    ['Ante un infarto sospechado se debe:', ['Dar comida','Activar emergencias y mantener reposo','Hacer ejercicio','Darle agua fría'], 1, 'Reducir la demanda cardiaca y activar ayuda.'],
+    ['La hipoglucemia se reconoce por:', ['Fiebre','Sudoración, temblor y confusión','Dolor de muelas','Náuseas solamente'], 1, 'Es una urgencia que requiere glucosa rápida.'],
+    ['El DEA (desfibrilador externo) se usa en:', ['Toda persona','Paro cardiorrespiratorio con ritmo desfibrilable','Dolor de cabeza','Cualquier sangrado'], 1, 'Solo personal capacitado y en paro.'],
+    ['Ante quemaduras se debe:', ['Poner pasta dental','Enfriar con agua corriente y cubrir','Reventar ampollas','Poner hielo directo'], 1, 'El agua fresca reduce el daño; el hielo puede lesionar más.'],
+    ['La pérdida del estado de conciencia requiere:', ['Esperar a que despierte','Evaluar vía aérea, respiración y circulación y activar emergencias','Darle de comer','Moverlo'], 1, 'Secuencia ABC y llamada de emergencia.'],
+    ['Falso o verdadero: en una emergencia domiciliaria primero se debe mover al paciente.',['Verdadero','Falso'],1,'Primero se evalúa y se llama ayuda; mover solo si es seguro.'],
+    ['La simulación de emergencias sirve para:', ['Practicar la respuesta ante urgencias en un entorno seguro','Entretener','Nada','Entrenar médicos únicamente'], 0, 'Fortalece la toma de decisiones bajo presión.']
+  ],
+  paliativos: [
+    ['Los cuidados paliativos se enfocan en:', ['Curar la enfermedad siempre','Aliviar el sufrimiento y mejorar la calidad de vida','Acelerar la muerte','Solo en hospital'], 1, 'Acompañan en cualquier etapa de enfermedad grave.'],
+    ['El manejo del dolor en paliativos es:', ['Opcional','Central y multidimensional','Solo con placebo','Innecesario'], 1, 'El confort es prioridad.'],
+    ['La comunicación de malas noticias debe ser:', ['Brusca y rápida','Clara, empática y en el momento adecuado','Por mensaje','Nunca'], 1, 'El cómo importa tanto como el qué.'],
+    ['El acompañamiento familiar en paliativos incluye:', ['Aislar a la familia','Incluir a la familia en el cuidado y el duelo','Prohibir visitas','Ignorar emociones'], 1, 'La familia es parte del proceso.'],
+    ['La dignidad en el final de la vida implica:', ['Decidir por la persona','Respetar sus valores, autonomía y comodidad','Ocultar información','Forzar tratamientos'], 1, 'La persona es el centro de las decisiones.'],
+    ['El duelo anticipado es:', ['Llorar antes','El proceso de adaptación que ocurre antes de la pérdida','Una enfermedad','Un tipo de demencia'], 1, 'Ocurre cuando se anticipa la pérdida.'],
+    ['Los cuidados físicos en paciente terminal incluyen:', ['Solo medicinas','Confort, higiene, control de síntomas y alivio','Nada','Hospitalización forzada'], 1, 'El bienestar físico es fundamental.'],
+    ['La ética en cuidados paliativos se centra en:', ['Ganar dinero','Beneficencia, no maleficencia, autonomía y justicia','Velocidad','Cantidad de turnos'], 1, 'Los principios éticos guían las decisiones.'],
+    ['El confort en paliativos puede lograrse con:', ['Procedimientos invasivos','Medidas no farmacológicas y farmacológicas según necesidad','Aislamiento','Prohibir contacto'], 1, 'Enfoque integral del bienestar.'],
+    ['La atención integral al paciente terminal abarca:', ['Solo lo físico','Físico, emocional, social y espiritual','Solo lo espiritual','Nada'], 1, 'Es un cuidado holístico.'],
+    ['Falso o verdadero: los cuidados paliativos son solo para cancerosos.',['Verdadero','Falso'],1,'Son para cualquier enfermedad grave que amenace la calidad de vida.'],
+    ['La autonomía al final de la vida significa:', ['Que la familia decida todo','Que la persona exprese sus deseos y sean respetados','No decidir nada','Que el médico decida'], 1, 'Las voluntades anticipadas y preferencias mandan.']
+  ],
+  etica: [
+    ['La ética profesional en gerontología exige:', ['Solo obedecer','Respeto, responsabilidad y bienestar del adulto mayor','Competir','Silencio'], 1, 'El bienestar del paciente es el centro.'],
+    ['La confidencialidad de la información del paciente implica:', ['Contar todo a todos','Proteger los datos personales y de salud','Publicar fotos','Ignorar normas'], 1, 'Es un derecho y un deber profesional.'],
+    ['El consentimiento informado requiere:', ['Firmar sin leer','Explicar riesgos, beneficios y alternativas antes de actuar','Obligar','Ignorar preguntas'], 1, 'La persona debe decidir con información completa.'],
+    ['La prevención del maltrato al adulto mayor incluye:', ['Ignorar señales','Detectar, reportar y proteger','Normalizar el abuso','Guardar silencio'], 1, 'Es obligación ética y legal reportar.'],
+    ['La comunicación asertiva es:', ['Gritar','Expresar con respeto, claridad y sin agresión','Mentir','Ignorar'], 1, 'Claridad + respeto.'],
+    ['El respeto a la autonomía del adulto mayor significa:', ['Decidir por él','Permitir que tome decisiones sobre su vida','Controlarlo','Ignorarlo'], 1, 'Aun con dependencia, se respetan sus preferencias.'],
+    ['La responsabilidad profesional implica:', ['Hacer solo lo pedido','Actuar con competencia, honestidad y rendición de cuentas','Delegar todo','Mentir'], 1, 'Ser responsable de las propias acciones.'],
+    ['La protección de datos personales en la plataforma requiere:', ['Compartir contraseñas','Manejo seguro, confidencialidad y acceso restringido','Publicar datos','Usar WiFi público sin cuidado'], 1, 'La información de salud es sensible.'],
+    ['La atención centrada en la persona desde la ética busca:', ['Estandarizar','Valorar la dignidad y preferencias individuales','Acelerar','Reducir costos'], 1, 'Cada persona es única.'],
+    ['La prevención de conflictos con familiares requiere:', ['Imponer criterios','Comunicación clara, empatía y límites profesionales','Ignorar','Gritar'], 1, 'La familia es aliada pero con límites.'],
+    ['Falso o verdadero: un empleado puede compartir la información de un paciente con su familia sin autorización.',['Verdadero','Falso'],1,'Solo con consentimiento del paciente o tutor legal.'],
+    ['La negligencia profesional se configura cuando:', ['Se hace el trabajo','Se omite un cuidado necesario causando daño','Se trabaja extra','Se pide ayuda'], 1, 'La omisión dolosa o culposa genera responsabilidad.']
+  ],
+  cuidador: [
+    ['El perfil profesional del cuidador gerontológico incluye:', ['Solo fuerza física','Conocimientos, habilidades, actitudes y ética','Solo experiencia','Título universitario siempre'], 1, 'Es un perfil integral de competencias.'],
+    ['Las funciones del cuidador incluyen:', ['Diagnosticar','Cuidar, acompañar, observar y reportar','Recetar','Operar'], 1, 'El cuidador no diagnostica ni prescribe.'],
+    ['La prevención del síndrome del cuidador quemado requiere:', ['Trabajar más','Autocuidado, límites y apoyo','Aislarse','Ignorar el cansancio'], 1, 'Cuidar al que cuida es esencial.'],
+    ['El autocuidado del profesional comprende:', ['Solo dormir','Salud física, emocional y límites sanos','Nada','Solo fines de semana'], 1, 'Sostiene la calidad del cuidado.'],
+    ['El trabajo en equipo multidisciplinario implica:', ['Trabajar solo','Coordinarse con otros profesionales del paciente','Competir','Ignorar al equipo'], 1, 'El paciente se beneficia del trabajo conjunto.'],
+    ['La organización de actividades domiciliarias incluye:', ['Hacer lo que sea','Planificar rutinas seguras y significativas',' improvisar','Nada'], 1, 'La rutina aporta seguridad y propósito.'],
+    ['La responsabilidad y puntualidad del cuidador son:', ['Opcionales','Fundamentales para la confianza del paciente','Solo para médicos','Irrelevantes'], 1, 'La confianza se construye con constancia.'],
+    ['El reporte de atención debe incluir:', ['Solo lo bueno','Observaciones, incidencias y evolución del paciente','Chismes','Nada'], 1, 'Documenta para continuidad del cuidado.'],
+    ['Los límites profesionales en el domicilio se refieren a:', ['No tener límites','Respetar la intimidad y el espacio del paciente','Invadir todo','Ignorar normas'], 1, 'El domicilio es el espacio privado del paciente.'],
+    ['El manejo de situaciones de riesgo incluye:', ['Ignorar','Identificar, reportar y actuar según protocolo','Actuar solo','Negar'], 1, 'La prevención y reporte protegen al paciente.'],
+    ['Falso o verdadero: el cuidador puede administrar medicamentos sin autorización.',['Verdadero','Falso'],1,'Solo personal autorizado puede administrar medicamentos.'],
+    ['La comunicación efectiva con el adulto mayor requiere:', ['Hablar de él en tercera persona','Dirigirse a él con respeto y escuchar','Gritar','Ignorar'], 1, 'La persona mayor merece ser escuchada.']
+  ],
+  administracion: [
+    ['La administración de servicios gerontológicos busca:', ['Solo ganar dinero','Calidad, seguridad y satisfacción del paciente','Velocidad','Reducir personal'], 1, 'El paciente es el centro.'],
+    ['La gestión de atención domiciliaria incluye:', ['Solo traslados','Planificación, supervisión y evaluación del servicio','Solo cobros','Nada'], 1, 'Asegura servicio ordenado y seguro.'],
+    ['Los indicadores de calidad en servicios gerontológicos miden:', ['Solo ingresos','Satisfacción, seguridad, resultados y procesos','Solo quejas','El clima'], 1, 'Permiten mejorar continuamente.'],
+    ['La gestión de riesgos identifica:', ['Solo oportunidades','Peligros potenciales y planes de mitigación','Solo ganancias','Nada'], 1, 'Previene incidentes.'],
+    ['La evaluación de satisfacción familiar mide:', ['Solo la puntualidad','La percepción de calidad del servicio por la familia','Solo el precio','La ubicación'], 1, 'La familia es cliente clave.'],
+    ['La mejora continua se basa en:', ['No cambiar nada','Ciclos de evaluación y ajuste constante','Quejas únicamente','Tradición'], 1, 'PDCA: planear, hacer, verificar, actuar.'],
+    ['La protección de expedientes clínicos requiere:', ['Exhibirlos','Confidencialidad, acceso restringido y respaldo','Compartirlos','Tirarlos'], 1, 'Son información sensible.'],
+    ['La supervisión de personal incluye:', ['Solo regañar','Acompañamiento, evaluación y desarrollo','Ignorar','Castigar'], 1, 'Busca el crecimiento del equipo.'],
+    ['Los planes individuales de atención documentan:', ['Solo el diagnóstico','Objetivos, intervenciones y responsables del cuidado','Nada','Solo medicinas'], 1, 'Personalizan y ordenan el cuidado.'],
+    ['La organización de expedientes de pacientes implica:', ['Desorden','Orden, confidencialidad y acceso controlado','Pérdida','Exhibición'], 1, 'Facilita la continuidad del cuidado.'],
+    ['Falso o verdadero: los protocolos institucionales son opcionales.',['Verdadero','Falso'],1, 'Son guías obligatorias que estandarizan la calidad.'],
+    ['La gestión de recursos humanos en una agencia incluye:', ['Solo contratar','Captación, formación, evaluación y retención','Solo despedir','Nada'], 1, 'El personal es el recurso clave.']
+  ],
+  talleres: [
+    ['La movilización segura en un taller práctico se entrena con:', ['Solo teoría','Práctica supervisada con técnica correcta','Imitación','Nada'], 1, 'La habilidad se aprende practicando.'],
+    ['La RCP con maniquí sirve para:', ['Entretener','Practicar compresiones y ventilaciones en condiciones realistas','Nada','Solo ver videos'], 1, 'La práctica genera confianza y destreza.'],
+    ['La evaluación del entorno domiciliario en prevención de caídas incluye:', ['Solo el piso','Iluminación, alfombras, baño y obstáculos','Solo la cama','Nada'], 1, 'El entorno es factor clave de riesgo.'],
+    ['El baño asistido en taller se practica para:', ['Ver cómo se hace','Dominar técnica, seguridad y dignidad','Nada','Solo teoría'], 1, 'La destreza práctica requiere repetición.'],
+    ['La estimulación cognitiva en taller incluye:', ['Solo leer','Diseñar y aplicar actividades de memoria y atención','Solo dormir','Nada'], 1, 'Se aprende diseñando y practicando.'],
+    ['La transferencia cama-silla en taller se evalúa por:', ['Velocidad','Seguridad, técnica y comodidad del paciente','Fuerza','Nada'], 1, 'La seguridad prima sobre la velocidad.'],
+    ['El uso del DEA en taller requiere:', ['No practicar','Practicar con simulador o equipo real bajo supervisión','Solo leer','Nada'], 1, 'La práctica controlada salva vidas.'],
+    ['La prevención de lesiones por presión en taller incluye:', ['Solo vendas','Técnica de cambios posturales y alivio de presión','Nada','Solo medicinas'], 1, 'La práctica correcta previene úlceras.'],
+    ['La simulación de emergencias en taller permite:', ['Practicar la respuesta ante urgencias','Solo ver','Nada','Olvidar'], 1, 'Fortalece la toma de decisiones.'],
+    ['La retroalimentación en un taller práctico es:', ['Crítica','Constructiva y orientada a mejorar','Ignorar','Castigo'], 1, 'Ayuda a mejorar la técnica.'],
+    ['Falso o verdadero: los talleres prácticos reemplazan la teoría.',['Verdadero','Falso'],1, 'Complementan la teoría con habilidad práctica.'],
+    ['La evaluación práctica de competencias se realiza mediante:', ['Solo exámenes escritos','Observación, lista de cotejo y desempeño','Solo memoria','Nada'], 1, 'Las habilidades se evalúan en la acción.']
+  ]
+};
+
+const CONTENIDO_UNIDADES = {
+  gerontologia: ['Conceptos fundamentales del envejecimiento','Aspectos biológicos, psicológicos y sociales del ciclo vital','Funcionalidad, autonomía e independencia en la vejez','Calidad de vida y envejecimiento activo'],
+  cuidados: ['Fundamentos del cuidado integral del adulto mayor','Higiene, confort y cuidado personal','Movilización, transferencias y cambios posturales','Prevención de complicaciones: caídas, úlceras y deshidratación'],
+  enfermedades: ['Panorama de las enfermedades crónicas más frecuentes','Reconocimiento de signos y síntomas por condición','Manejo seguro y comunicación con el equipo','Prevención de complicaciones y educación al paciente'],
+  fisioterapia: ['Fundamentos de la rehabilitación geriátrica','Valoración funcional y prescripción de ejercicio','Ejercicios de fuerza, equilibrio y marcha','Aplicación práctica en el domicilio'],
+  salud_mental: ['Salud mental y bienestar en la vejez','Estimulación cognitiva y memoria','Comunicación y manejo emocional','Acompañamiento, duelo y actividades terapéuticas'],
+  nutricion: ['Fundamentos de la nutrición geriátrica','Evaluación del estado nutricional','Condiciones especiales: diabetes, disfagia, sarcopenia','Elaboración de planes alimentarios seguros'],
+  enfermeria: ['Fundamentos de la atención clínica geriátrica','Signos vitales y valoración básica','Procedimientos seguros dentro de atribuciones','Vigilancia, registro y continuidad de cuidados'],
+  emergencias: ['Principios de primera respuesta','RCP, DEA y soporte vital básico','Reconocimiento de emergencias específicas','Activación de servicios y simulación práctica'],
+  paliativos: ['Introducción a los cuidados paliativos','Confort, síntomas y calidad de vida','Comunicación, familia y duelo','Ética y dignidad en el final de la vida'],
+  etica: ['Fundamentos éticos de la atención geriátrica','Derechos, confidencialidad y consentimiento','Prevención del maltrato y negligencia','Responsabilidad profesional y límites'],
+  cuidador: ['Perfil y funciones del cuidador profesional','Habilidades de comunicación y organización','Autocuidado y manejo del estrés','Límites, reportes y manejo de riesgos'],
+  administracion: ['Fundamentos de la gestión de servicios','Calidad, indicadores y mejora continua','Gestión de riesgos y protocolos','Recursos humanos, expedientes y satisfacción'],
+  talleres: ['Fundamentos teóricos del taller','Demostración y práctica guiada','Práctica supervisada y retroalimentación','Evaluación de competencias prácticas']
+};
+
+app.post('/api/academia/admin/sembrar-contenido', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: cursos } = await supabase.from('academia_cursos').select('*').eq('estado', 'publicado');
+    let cursosCon = 0, unidadesCreadas = 0, preguntasCreadas = 0;
+    for (const curso of cursos || []) {
+      const { count: hayUnidades } = await supabase.from('academia_unidades').select('id', { count: 'exact', head: true }).eq('curso_id', curso.id);
+      if (hayUnidades > 0) { cursosCon++; continue; }
+      const banco = BANCO_PREGUNTAS[curso.area] || BANCO_PREGUNTAS.cuidador;
+      const titulos = CONTENIDO_UNIDADES[curso.area] || CONTENIDO_UNIDADES.cuidados;
+      const nUnidades = curso.area === 'talleres' ? 4 : 4 + (Math.floor(Math.random() * 2)); // 4-5
+      const unidadesIds = [];
+      for (let i = 0; i < nUnidades; i++) {
+        const titulo = titulos[i % titulos.length];
+        const { data: u } = await supabase.from('academia_unidades').insert({
+          curso_id: curso.id, orden: i + 1, titulo,
+          contenido: `${titulo}. En esta unidad se desarrollan los conceptos fundamentales, las aplicaciones prácticas en el entorno domiciliario y los criterios de evaluación del desempeño del profesional de la agencia. El contenido está dirigido a fortalecer las competencias del participante en ${curso.titulo.toLowerCase()} dentro del marco de la atención gerontológica integral.`
+        }).select().single();
+        if (u) { unidadesIds.push(u.id); unidadesCreadas++; }
+      }
+      // Preguntas por unidad: muestra del banco de la categoría
+      for (let i = 0; i < unidadesIds.length; i++) {
+        const muestra = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(10, banco.length));
+        for (const [pregunta, opciones, correctaIdx, retro] of muestra) {
+          const tipo = opciones.length === 2 && ['Verdadero','Falso'].includes(opciones[0]) ? 'verdadero_falso' : 'opcion_multiple';
+          await supabase.from('academia_preguntas').insert({
+            curso_id: curso.id, unidad_id: unidadesIds[i], tipo, pregunta,
+            opciones: tipo === 'opcion_multiple' ? opciones : null,
+            respuesta_correcta: tipo === 'verdadero_falso' ? opciones[correctaIdx] : opciones[correctaIdx],
+            retroalimentacion: retro, dificultad: 'medio', puntos: 1
+          });
+          preguntasCreadas++;
+        }
+      }
+      // Examen final: preguntas sin unidad
+      const muestraFinal = [...banco].sort(() => Math.random() - 0.5).slice(0, Math.min(15, banco.length));
+      for (const [pregunta, opciones, correctaIdx, retro] of muestraFinal) {
+        const tipo = opciones.length === 2 && ['Verdadero','Falso'].includes(opciones[0]) ? 'verdadero_falso' : 'opcion_multiple';
+        await supabase.from('academia_preguntas').insert({
+          curso_id: curso.id, unidad_id: null, tipo, pregunta,
+          opciones: tipo === 'opcion_multiple' ? opciones : null,
+          respuesta_correcta: opciones[correctaIdx], retroalimentacion: retro, dificultad: 'medio', puntos: 1
+        });
+        preguntasCreadas++;
+      }
+      cursosCon++;
+    }
+    res.json({ ok: true, cursos_procesados: cursosCon, unidades_creadas: unidadesCreadas, preguntas_creadas: preguntasCreadas });
+  } catch (e) { console.error('sembrar-contenido:', e); res.status(500).json({ error: e.message || 'Error' }); }
+});
+
 export default app;
 
 // Solo escuchar en ejecución local (node src/index.js); en Vercel se exporta como función
