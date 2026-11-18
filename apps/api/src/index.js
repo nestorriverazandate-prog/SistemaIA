@@ -15,6 +15,7 @@ import { OAuth2Client } from 'google-auth-library';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+import twilio from 'twilio';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { resolveMx } from 'node:dns/promises';
@@ -4353,23 +4354,20 @@ async function llamarYMensaje(emergenciaId, emp) {
     await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: 'No configurado: faltan credenciales Twilio o teléfono del directivo (TWILIO_*, DIRECTIVO_TELEFONO)' }).catch(() => {});
     return { llamada: 'no_configurada' };
   }
-  const auth = 'Basic ' + Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64');
-  const msg = `🚨 EMERGENCIA AGI — ${emp?.nombre || 'Empleado'} activó botón de pánico. Revisa el Centro de Emergencias.`;
   const resultados = {};
+  const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+  const msg = `EMERGENCIA AGI - ${emp?.nombre || 'Empleado'} activo el boton de panico. Revisa el Centro de Emergencias.`;
   try {
-    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-      method: 'POST', headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ To: tel, From: TWILIO_FROM, Body: msg })
-    });
-    resultados.sms = r.ok ? 'enviado' : `error ${r.status}`;
-  } catch { resultados.sms = 'error_red'; }
+    await client.messages.create({ to: tel, from: TWILIO_FROM, body: msg });
+    resultados.sms = 'enviado';
+  } catch (e) { resultados.sms = 'error: ' + (e.message || e.code || 'desconocido'); }
   try {
-    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Calls.json`, {
-      method: 'POST', headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ To: tel, From: TWILIO_FROM, Twiml: '<Response><Say language="es-MX">Alerta de emergencia. Un trabajador activó el botón de pánico. Revisa la plataforma.</Say></Response>' })
+    await client.calls.create({
+      to: tel, from: TWILIO_FROM,
+      twiml: '<Response><Say language="es-MX">Alerta de emergencia. Un trabajador activo el boton de panico. Revisa la plataforma.</Say></Response>'
     });
-    resultados.llamada = r.ok ? 'iniciada' : `error ${r.status}`;
-  } catch { resultados.llamada = 'error_red'; }
+    resultados.llamada = 'iniciada';
+  } catch (e) { resultados.llamada = 'error: ' + (e.message || e.code || 'desconocido'); }
   await supabase.from('emergencia_eventos').insert({ emergencia_id: emergenciaId, tipo: 'llamada_sms', detalle: JSON.stringify(resultados) }).catch(() => {});
   return resultados;
 }
