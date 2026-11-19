@@ -507,6 +507,7 @@
  </div>
  <div>
  <a class="ghost link" href="/emergencias">🚨 Emergencias</a>
+ <a class="ghost link" href="/mensajeria">💬 Mensajes</a>
  <a class="ghost link" href="/centro">Centro de Inteligencia</a>
  <a class="ghost link" href="/evaluaciones">Evaluaciones</a>
  <a class="ghost link" href="/encuestas">Encuestas</a>
@@ -651,6 +652,7 @@
  <a class="ghost link" href="/mapa-pacientes">Mapa</a>
  <a class="ghost link" href="/mis-pacientes">Mis pacientes</a>
  <a class="ghost link" href="/academia">Academia</a>
+ <a class="ghost link" href="/mensajeria">💬 Mensajes</a>
  <a class="ghost link" href="/evaluaciones">Mis evaluaciones</a>
  <a class="ghost link" href="/agenda">Mi agenda</a>
  <a class="ghost link" href="/registrar">Registrar visita</a>

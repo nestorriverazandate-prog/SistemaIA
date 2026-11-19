@@ -184,6 +184,7 @@
  </a>
  <div>
   <span class="badge">{perfil.email} · Familiar</span>
+  <a class="mini ghost" href="/mensajeria" style="text-decoration:none">💬 Mensajes</a>
   <button class="mini ghost" onclick={imprimirCredencial}>🪪 Credencial</button>
   <button class="ghost" onclick={logout}>Salir</button>
  </div>

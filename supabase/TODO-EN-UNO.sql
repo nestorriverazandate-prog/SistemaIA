@@ -719,3 +719,30 @@ alter table public.emergencia_mensajes enable row level security;
 
 -- Chat de emergencia: estado de entrega de mensajes
 alter table public.emergencia_mensajes add column if not exists entregado boolean not null default false;
+
+-- ================= CHAT INTERNO =================
+create table if not exists public.mensajes_internos (
+  id uuid primary key default gen_random_uuid(),
+  emisor_id uuid not null references public.perfiles (id) on delete cascade,
+  receptor_id uuid references public.perfiles (id) on delete cascade,
+  audiencia text check (audiencia in ('todos','empleados','familiares')),
+  cuerpo text not null,
+  adjunto_path text,
+  leido boolean not null default false,
+  importante boolean not null default false,
+  reportado boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists msg_int_emisor_idx on public.mensajes_internos (emisor_id);
+create index if not exists msg_int_receptor_idx on public.mensajes_internos (receptor_id);
+alter table public.mensajes_internos enable row level security;
+
+create table if not exists public.chat_estado (
+  usuario_id uuid not null references public.perfiles (id) on delete cascade,
+  partner text not null,
+  archivada boolean not null default false,
+  importante boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (usuario_id, partner)
+);
+alter table public.chat_estado enable row level security;

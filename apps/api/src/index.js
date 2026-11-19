@@ -4668,6 +4668,212 @@ app.get('/api/emergencias', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
+// ---------- Chat interno (directivo <-> todos los perfiles) ----------
+async function adminPrincipal() {
+  const { data } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado').order('created_at').limit(1).maybeSingle();
+  return data?.id || null;
+}
+
+// Conversaciones del usuario actual con último mensaje y no leídos
+app.get('/api/chat/conversaciones', requireUser, async (req, res) => {
+  try {
+    const admin = isAdmin(req);
+    const adminId = await adminPrincipal();
+    const { data: msgs } = await supabase.from('mensajes_internos')
+      .select('*').order('created_at', { ascending: false }).limit(2000);
+    const todos = msgs || [];
+
+    // ids de admins para saber a quién "ve" cada no-admin
+    const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+    const adminIds = new Set((admins || []).map((a) => a.id));
+
+    let convers = [];
+    let partners = [];
+    if (admin) {
+      // agrupar por la otra persona
+      const map = new Map();
+      for (const m of todos) {
+        const otro = m.emisor_id === req.user.id ? m.receptor_id : m.emisor_id;
+        if (!otro || otro === req.user.id) continue;
+        if (!map.has(otro)) map.set(otro, { partner: otro, ultimo: m, noLeidos: 0 });
+        const c = map.get(otro);
+        if (m.created_at > c.ultimo.created_at) c.ultimo = m;
+        if (!m.leido && m.receptor_id === req.user.id) c.noLeidos++;
+      }
+      convers = [...map.values()];
+      const ids = convers.map((c) => c.partner);
+      const { data: ps } = ids.length ? await supabase.from('perfiles').select('id, nombre, email, rol, telefono, foto_path').in('id', ids) : { data: [] };
+      partners = ps || [];
+    } else {
+      // no-admin: una sola conversación "Directivo" + comunicados
+      const hilo = todos.filter((m) =>
+        (!m.audiencia && m.receptor_id && adminIds.has(m.receptor_id) && m.emisor_id === req.user.id) ||
+        (!m.audiencia && m.emisor_id && adminIds.has(m.emisor_id) && m.receptor_id === req.user.id)
+      );
+      const noLeidos = hilo.filter((m) => !m.leido && m.receptor_id === req.user.id).length;
+      convers = adminId ? [{ partner: 'directivo', ultimo: hilo[0] || null, noLeidos }] : [];
+      if (adminId) {
+        const { data: ad } = await supabase.from('perfiles').select('id, nombre, email, rol, telefono, foto_path').eq('id', adminId).maybeSingle();
+        partners = ad ? [ad] : [];
+      }
+    }
+    // comunicados visibles para mi rol
+    const miRol = req.user.perfil?.rol;
+    const broadcast = todos.filter((m) => m.audiencia && (!m.audiencia || m.audiencia === 'todos' || m.audiencia === miRol));
+    const { data: est } = await supabase.from('chat_estado').select('*').eq('usuario_id', req.user.id);
+    const estMap = Object.fromEntries((est || []).map((e) => [e.partner, e]));
+    const totalNoLeidos = convers.reduce((a, c) => a + c.noLeidos, 0) +
+      broadcast.filter((m) => !m.leido && (m.receptor_id === null)).length;
+    res.json({
+      conversaciones: convers.map((c) => ({ ...c, perfil: partners.find((p) => p.id === c.partner) || null, estado: estMap[c.partner] || null })),
+      comunicados: broadcast.slice(0, 50),
+      totalNoLeidos,
+      esAdmin: admin
+    });
+  } catch (e) { console.error('chat conversaciones:', e); res.status(500).json({ error: 'Error' }); }
+});
+
+// Historial de una conversación
+app.get('/api/chat/mensajes', requireUser, async (req, res) => {
+  try {
+    const con = req.query.con;
+    const admin = isAdmin(req);
+    const adminIds = (await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado'))?.data?.map((a) => a.id) || [];
+    let q;
+    if (con === 'directivo') {
+      // hilo no-admin <-> cualquier admin
+      const ors = [];
+      for (const aid of adminIds) {
+        ors.push(`and(emisor_id.eq.${req.user.id},receptor_id.eq.${aid})`, `and(emisor_id.eq.${aid},receptor_id.eq.${req.user.id})`);
+      }
+      q = supabase.from('mensajes_internos').select('*').or(ors.join(',')).order('created_at', { ascending: true }).limit(1000);
+    } else if (con === 'comunicados') {
+      const miRol = req.user.perfil?.rol;
+      q = supabase.from('mensajes_internos').select('*').not('audiencia', 'is', null)
+        .or(`audiencia.eq.todos,audiencia.eq.${miRol}`).order('created_at', { ascending: true }).limit(500);
+    } else {
+      if (!admin) return res.status(403).json({ error: 'Solo el directivo puede abrir esa conversación' });
+      q = supabase.from('mensajes_internos').select('*')
+        .or(`and(emisor_id.eq.${req.user.id},receptor_id.eq.${con}),and(emisor_id.eq.${con},receptor_id.eq.${req.user.id})`)
+        .order('created_at', { ascending: true }).limit(1000);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    // marcar leídos los mensajes que recibí en esta conversación
+    const ids = (data || []).filter((m) => m.receptor_id === req.user.id && !m.leido).map((m) => m.id);
+    if (ids.length) await supabase.from('mensajes_internos').update({ leido: true }).in('id', ids);
+    // nombres de emisores
+    const emIds = [...new Set((data || []).map((m) => m.emisor_id))];
+    const { data: ps } = emIds.length ? await supabase.from('perfiles').select('id, nombre').in('id', emIds) : { data: [] };
+    const pMap = Object.fromEntries((ps || []).map((p) => [p.id, p.nombre]));
+    res.json({ mensajes: (data || []).map((m) => ({ ...m, emisor_nombre: pMap[m.emisor_id] || '' })) });
+  } catch (e) { console.error('chat mensajes:', e); res.status(500).json({ error: 'Error' }); }
+});
+
+// Enviar mensaje (texto). No-admin solo puede escribir al directivo.
+app.post('/api/chat/mensajes', requireUser, async (req, res) => {
+  try {
+    const { receptor_id, audiencia, cuerpo, adjunto } = req.body || {};
+    const texto = String(cuerpo || '').trim();
+    if (!texto && !adjunto) return res.status(400).json({ error: 'Mensaje vacío' });
+    // Adjunto: dataURL (imagen o archivo) → bucket privado 'perfiles/chat/'
+    let adjuntoPath = null;
+    if (adjunto && typeof adjunto === 'string' && adjunto.startsWith('data:')) {
+      const parsed = dataUrlABuffer(adjunto);
+      if (parsed && parsed.buffer.length <= 8 * 1024 * 1024) {
+        const ext = parsed.mime.includes('png') ? 'png' : parsed.mime.includes('pdf') ? 'pdf' : parsed.mime.includes('word') || parsed.mime.includes('document') ? 'doc' : 'jpg';
+        adjuntoPath = `chat/${randomBytes(12).toString('hex')}.${ext}`;
+        await supabase.storage.from('perfiles').upload(adjuntoPath, parsed.buffer, { contentType: parsed.mime, upsert: true });
+      }
+    }
+    const admin = isAdmin(req);
+    let receptor = receptor_id || null;
+    let aud = audiencia || null;
+    if (!admin) {
+      // forzar: solo al directivo (o comunicado no permitido)
+      if (aud) return res.status(403).json({ error: 'Solo el directivo puede enviar comunicados' });
+      receptor = await adminPrincipal();
+      if (!receptor) return res.status(500).json({ error: 'No hay directivo configurado' });
+    } else if (aud) {
+      if (!['todos', 'empleados', 'familiares'].includes(aud)) return res.status(400).json({ error: 'Audiencia inválida' });
+      receptor = null;
+    } else if (!receptor) {
+      return res.status(400).json({ error: 'Destinatario requerido' });
+    }
+    // evitar auto-mensaje directo
+    if (receptor === req.user.id) return res.status(400).json({ error: 'No puedes escribirte a ti mismo' });
+    const { data, error } = await supabase.from('mensajes_internos').insert({
+      emisor_id: req.user.id, receptor_id: receptor, audiencia: aud,
+      cuerpo: texto.slice(0, 4000) || '[archivo]', adjunto_path: adjuntoPath
+    }).select().single();
+    if (error) throw error;
+    // notificar al receptor (o a los del grupo)
+    let destinos = [];
+    if (aud) {
+      const { data: ps } = await supabase.from('perfiles').select('id').eq('estado', 'aprobado').neq('id', req.user.id);
+      destinos = (ps || []).filter((p) => aud === 'todos' || req.user.perfil?.rol === 'admin' ? true : true);
+      // filtrar por rol del destinatario
+      const { data: ps2 } = await supabase.from('perfiles').select('id, rol').eq('estado', 'aprobado').neq('id', req.user.id);
+      destinos = (ps2 || []).filter((p) => aud === 'todos' || p.rol === aud || (aud === 'empleados' && p.rol === 'staff'));
+    } else {
+      destinos = [{ id: receptor }];
+    }
+    const quien = req.user.perfil?.nombre || req.user.email;
+    for (const d of destinos.slice(0, 500)) {
+      await supabase.from('notificaciones').insert({
+        destinatario_id: d.id, tipo: 'mensaje',
+        mensaje: aud ? `Comunicado de ${quien}: ${texto.slice(0, 90)}` : `${quien} te envió un mensaje: ${texto.slice(0, 90)}`,
+        datos: { chat: true, mensaje_id: data.id }
+      });
+    }
+    broadcast({ tipo: 'chat', datos: { mensaje_id: data.id } });
+    res.json({ mensaje: data });
+  } catch (e) { console.error('chat enviar:', e); res.status(500).json({ error: 'Error al enviar' }); }
+});
+
+// URL firmada temporal para adjuntos del chat (solo rutas chat/)
+app.get('/api/chat/adjunto', requireUser, async (req, res) => {
+  try {
+    const p = String(req.query.p || '');
+    if (!p.startsWith('chat/')) return res.status(403).json({ error: 'Ruta inválida' });
+    const { data, error } = await supabase.storage.from('perfiles').createSignedUrl(p, 3600);
+    if (error || !data) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ url: data.signedUrl });
+  } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// Archivar / destacar conversación (por usuario)
+app.post('/api/chat/estado', requireUser, async (req, res) => {
+  try {
+    const { partner, archivada, importante } = req.body || {};
+    if (!partner) return res.status(400).json({ error: 'partner requerido' });
+    const { data: existe } = await supabase.from('chat_estado').select('*').eq('usuario_id', req.user.id).eq('partner', partner).maybeSingle();
+    if (existe) {
+      const upd = {};
+      if (archivada !== undefined) upd.archivada = archivada;
+      if (importante !== undefined) upd.importante = importante;
+      upd.updated_at = new Date().toISOString();
+      await supabase.from('chat_estado').update(upd).eq('usuario_id', req.user.id).eq('partner', partner);
+    } else {
+      await supabase.from('chat_estado').insert({ usuario_id: req.user.id, partner, archivada: !!archivada, importante: !!importante });
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Reportar mensaje inapropiado
+app.post('/api/chat/reportar', requireUser, async (req, res) => {
+  try {
+    const { mensaje_id } = req.body || {};
+    await supabase.from('mensajes_internos').update({ reportado: true }).eq('id', mensaje_id);
+    const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+    for (const a of admins || []) await supabase.from('notificaciones').insert({
+      destinatario_id: a.id, tipo: 'mensaje', mensaje: `${req.user.perfil?.nombre || req.user.email} reportó un mensaje inapropiado en el chat interno.`, datos: { chat: true, mensaje_id }
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
 export default app;
 
 // Solo escuchar en ejecución local (node src/index.js); en Vercel se exporta como función
