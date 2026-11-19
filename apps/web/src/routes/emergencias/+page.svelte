@@ -63,6 +63,17 @@
     } catch (e) { error = e.message; }
   }
 
+  async function eliminarUna(e) {
+    if (!confirm(`¿Eliminar esta emergencia de ${e.perfiles?.nombre || 'empleado'} (${ESTADOS[e.estado] || e.estado})?`)) return;
+    try {
+      await api.raw(`/api/emergencias/${e.id}`, { method: 'DELETE' });
+      error = '';
+      if (chatAbierto === e.id) { chatAbierto = null; mensajes = []; }
+      if (eventoAbierto === e.id) eventoAbierto = null;
+      await cargar();
+    } catch (err) { error = err.message; }
+  }
+
   async function eliminarActivas() {
     const n = lista.filter((e) => ['activa','confirmada','en_gestion','atendida'].includes(e.estado)).length;
     if (!n) { error = 'No hay alertas activas'; return; }
@@ -200,6 +211,7 @@
           <div class="hist">
             <b>{e.perfiles?.nombre || '—'}</b> · {ESTADOS[e.estado] || e.estado} · {fmtFecha(e.created_at)}
             {#if e.motivo_cancelacion}<span class="mut"> — motivo: {e.motivo_cancelacion}</span>{/if}
+            {#if esAdmin}<button class="btn-del" onclick={() => eliminarUna(e)}>Eliminar</button>{/if}
           </div>
         {/each}
         {#if !lista.filter(e => !['activa','confirmada','en_gestion'].includes(e.estado)).length}
@@ -217,7 +229,10 @@
         <div class="card alerta {e.estado}">
           <div class="alerta-head">
             <span class="badge {e.estado}">{ESTADOS[e.estado] || e.estado}</span>
-            <span class="hora">{fmtFecha(e.created_at)}</span>
+            <span class="alerta-acciones">
+              <span class="hora">{fmtFecha(e.created_at)}</span>
+              {#if esAdmin}<button class="btn-del" onclick={() => eliminarUna(e)}>Eliminar</button>{/if}
+            </span>
           </div>
           <div class="datos">
             <div class="foto-wrap">
@@ -297,6 +312,11 @@
   .wrap { max-width: 1200px; margin: 0 auto; padding: 1rem; font-family: inherit; color: #1f2937; }
   header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem; }
   .head-actions { display: flex; gap: .5rem; align-items: center; }
+  .alerta-acciones { display: flex; align-items: center; gap: .5rem; }
+  .btn-del { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 8px; padding: .25rem .7rem; font-size: .75rem; font-weight: 700; cursor: pointer; }
+  .btn-del:hover { background: #fecaca; }
+  .hist { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .hist .btn-del { margin-left: auto; }
   .danger { color: #b91c1c !important; border-color: #fca5a5 !important; }
   h1 { font-size: 1.4rem; color: #c0392b; margin: 0; }
   h2 { font-size: 1rem; margin: 0 0 .6rem; }

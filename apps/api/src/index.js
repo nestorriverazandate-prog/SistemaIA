@@ -4656,6 +4656,16 @@ app.delete('/api/emergencias/activas', requireUser, async (req, res) => {
   } catch (e) { console.error('delete activas:', e); res.status(500).json({ error: 'Error' }); }
 });
 
+// Eliminar una emergencia individual (solo directivo)
+app.delete('/api/emergencias/:id', requireUser, async (req, res) => {
+  try {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+    const { error } = await supabase.from('emergencias').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { console.error('delete emergencia:', e); res.status(500).json({ error: 'Error' }); }
+});
+
 // Eliminar historial de emergencias (solo directivo; conserva las activas)
 app.delete('/api/emergencias/historial', requireUser, async (req, res) => {
   try {
