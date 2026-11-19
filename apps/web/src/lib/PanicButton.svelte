@@ -116,7 +116,13 @@
       try {
         const d = await api.raw('/api/emergencias');
         const actual = (d.emergencias || []).find((e) => e.id === emergencia.id);
-        if (!actual) return;
+        if (!actual) {
+          // la emergencia fue eliminada por el directivo
+          detenerGps();
+          if (pollEmergencia) { clearInterval(pollEmergencia); pollEmergencia = null; }
+          fase = 'idle'; emergencia = null; paciente = null; estadoEmergencia = 'activa'; empleadoConfirmo = false; minimizado = false;
+          return;
+        }
         estadoEmergencia = actual.estado;
         empleadoConfirmo = !!actual.empleado_confirmo_at;
         if (['confirmada', 'en_gestion', 'atendida'].includes(actual.estado)) minimizado = true;

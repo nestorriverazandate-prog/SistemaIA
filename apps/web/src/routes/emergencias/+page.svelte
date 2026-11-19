@@ -63,6 +63,17 @@
     } catch (e) { error = e.message; }
   }
 
+  async function eliminarActivas() {
+    const n = lista.filter((e) => ['activa','confirmada','en_gestion','atendida'].includes(e.estado)).length;
+    if (!n) { error = 'No hay alertas activas'; return; }
+    if (!confirm(`¿Eliminar ${n} alerta(s) activas o en gestión? Se borrarán junto con su chat y bitácora. Solo hazlo si ya no son reales.`)) return;
+    try {
+      await api.raw('/api/emergencias/activas', { method: 'DELETE' });
+      error = '';
+      await cargar();
+    } catch (e) { error = e.message; }
+  }
+
   async function toggleChat(e) {
     chatAbierto = chatAbierto === e.id ? null : e.id;
     if (chatAbierto === e.id) await cargarMensajes(e.id);
@@ -164,6 +175,7 @@
       <p class="sub">Alertas del botón de pánico · {new Date().toLocaleString('es-MX')}</p>
     </div>
     <div class="head-actions">
+      {#if esAdmin}<button class="ghost link danger" onclick={eliminarActivas}>Eliminar activas</button>{/if}
       {#if esAdmin}<button class="ghost link danger" onclick={eliminarHistorial}>Eliminar historial</button>{/if}
       <a class="ghost link" href="/">← Inicio</a>
     </div>
