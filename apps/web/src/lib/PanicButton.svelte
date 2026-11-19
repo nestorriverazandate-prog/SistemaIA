@@ -137,10 +137,31 @@
     cerrada: ' EMERGENCIA CERRADA'
   };
 
+  async function restaurarEmergenciaActiva() {
+    try {
+      const miId = me?.user?.id || me?.id;
+      if (!miId) return;
+      const d = await api.raw('/api/emergencias');
+      const activa = (d.emergencias || []).find((e) =>
+        e.empleado_id === miId && ['activa', 'confirmada', 'en_gestion', 'atendida'].includes(e.estado)
+      );
+      if (!activa) return;
+      emergencia = activa;
+      estadoEmergencia = activa.estado;
+      empleadoConfirmo = !!activa.empleado_confirmo_at;
+      paciente = activa.pacientes || null;
+      fase = 'activa';
+      minimizado = ['confirmada', 'en_gestion', 'atendida'].includes(activa.estado);
+      iniciarSeguimientoGps();
+      iniciarPollingEstado();
+    } catch {}
+  }
+
   onMount(async () => {
     visible = !!getToken() && !window.location.pathname.startsWith('/chat-emergencia');
     if (!visible) return;
     try { me = await api.raw('/api/me'); } catch {}
+    restaurarEmergenciaActiva();
   });
   onDestroy(() => { detenerGps(); if (pollEmergencia) clearInterval(pollEmergencia); });
 </script>
