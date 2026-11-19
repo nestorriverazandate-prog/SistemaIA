@@ -4645,6 +4645,17 @@ app.post('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
 });
 
 // Listar emergencias: admin ve todas; empleado solo las suyas
+// Eliminar historial de emergencias (solo directivo; conserva las activas)
+app.delete('/api/emergencias/historial', requireUser, async (req, res) => {
+  try {
+    if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+    const { data, error } = await supabase.from('emergencias')
+      .delete().in('estado', ['cerrada', 'cancelada']).select('id');
+    if (error) throw error;
+    res.json({ eliminadas: (data || []).length });
+  } catch (e) { console.error('delete historial:', e); res.status(500).json({ error: 'Error' }); }
+});
+
 app.get('/api/emergencias', requireUser, async (req, res) => {
   try {
     const admin = isAdmin(req);

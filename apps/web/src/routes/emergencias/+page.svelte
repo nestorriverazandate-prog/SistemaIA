@@ -52,6 +52,17 @@
     dibujarMarcadores();
   }
 
+  async function eliminarHistorial() {
+    const n = lista.filter((e) => ['cerrada','cancelada'].includes(e.estado)).length;
+    if (!n) { error = 'No hay historial para eliminar'; return; }
+    if (!confirm(`¿Eliminar ${n} emergencia(s) cerradas o canceladas del historial? Esta acción no se puede deshacer.`)) return;
+    try {
+      const d = await api.raw('/api/emergencias/historial', { method: 'DELETE' });
+      error = '';
+      await cargar();
+    } catch (e) { error = e.message; }
+  }
+
   async function toggleChat(e) {
     chatAbierto = chatAbierto === e.id ? null : e.id;
     if (chatAbierto === e.id) await cargarMensajes(e.id);
@@ -152,7 +163,10 @@
       <h1> CENTRO DE EMERGENCIAS</h1>
       <p class="sub">Alertas del botón de pánico · {new Date().toLocaleString('es-MX')}</p>
     </div>
-    <a class="ghost link" href="/">← Inicio</a>
+    <div class="head-actions">
+      {#if esAdmin}<button class="ghost link danger" onclick={eliminarHistorial}>Eliminar historial</button>{/if}
+      <a class="ghost link" href="/">← Inicio</a>
+    </div>
   </header>
 
   {#if error}<div class="alert-error">{error}</div>{/if}
@@ -269,7 +283,9 @@
 
 <style>
   .wrap { max-width: 1200px; margin: 0 auto; padding: 1rem; font-family: inherit; color: #1f2937; }
-  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem; }
+  .head-actions { display: flex; gap: .5rem; align-items: center; }
+  .danger { color: #b91c1c !important; border-color: #fca5a5 !important; }
   h1 { font-size: 1.4rem; color: #c0392b; margin: 0; }
   h2 { font-size: 1rem; margin: 0 0 .6rem; }
   h3 { font-size: .85rem; margin: .8rem 0 .4rem; }
