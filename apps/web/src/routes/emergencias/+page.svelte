@@ -14,14 +14,18 @@
   let map = null;
   let marcadores = {};
   let eventoAbierto = $state(null);
+  let chatAbierto = $state(null);
+  let mensajes = $state([]);
+  let mensajeTexto = $state('');
   let accionesTexto = $state('');
   let contactoRealizado = $state('');
   let pollTimer = null;
   let es = null;
 
   const ESTADOS = {
-    activa: 'ACTIVA', confirmada: 'CONFIRMADA',
-    atendida: 'ATENDIDA', cancelada: 'CANCELADA', falsa_alarma: 'FALSA ALARMA'
+    activa: '🚨 ALERTA ACTIVADA', confirmada: '✔ DIRECTIVO ENTERADO',
+    en_gestion: '🛠 AYUDA EN GESTIÓN', atendida: '🤝 EMERGENCIA ATENDIDA',
+    cerrada: '🔒 EMERGENCIA CERRADA', cancelada: 'CANCELADA'
   };
 
   function fmtFecha(iso) {
@@ -48,6 +52,24 @@
     dibujarMarcadores();
   }
 
+  async function toggleChat(e) {
+    chatAbierto = chatAbierto === e.id ? null : e.id;
+    if (chatAbierto === e.id) await cargarMensajes(e.id);
+  }
+  async function cargarMensajes(id) {
+    try { const d = await api.raw(`/api/emergencias/${id}/mensajes`); mensajes = d.mensajes || []; }
+    catch { mensajes = []; }
+  }
+  async function enviarMensaje(e) {
+    if (!mensajeTexto.trim()) return;
+    try {
+      await api.raw(`/api/emergencias/${e.id}/mensajes`, { method: 'POST', body: JSON.stringify({ mensaje: mensajeTexto }) });
+      mensajeTexto = '';
+      await cargarMensajes(e.id);
+    } catch (err) { error = err.message; }
+  }
+  function nombreRemitente(m) { return m.perfiles?.nombre || (m.remitente_id === me?.user?.id ? 'Tú' : 'Contacto'); }
+
   async function confirmar(e) {
     try { await api.raw(`/api/emergencias/${e.id}/confirmar`, { method: 'POST', body: '{}' }); await cargar(); }
     catch (err) { error = err.message; }
@@ -62,6 +84,16 @@
       await cargar();
     } catch (err) { error = err.message; }
   }
+  async function gestionar(e) {
+    try { await api.raw(`/api/emergencias/${e.id}/gestion`, { method: 'POST', body: '{}' }); await cargar(); }
+    catch (err) { error = err.message; }
+  }
+  async function cerrar(e) {
+    const obs = prompt('Observaciones de cierre de la emergencia:');
+    if (obs === null) return;
+    try { await api.raw(`/api/emergencias/${e.id}/cerrar`, { method: 'POST', body: JSON.stringify({ observaciones: obs }) }); await cargar(); }
+    catch (err) { error = err.message; }
+  }
   async function cancelar(e) {
     const motivo = prompt('Motivo de cancelación:');
     if (motivo === null) return;
@@ -73,11 +105,11 @@
     if (!map || !L) return;
     Object.values(marcadores).forEach((m) => map.removeLayer(m));
     marcadores = {};
-    const activas = lista.filter((e) => e.estado === 'activa' || e.estado === 'confirmada');
+    const activas = lista.filter((e) => ['activa','confirmada','en_gestion'].includes(e.estado));
     let bounds = [];
     for (const e of lista) {
       if (e.lat == null || e.lng == null) continue;
-      const color = e.estado === 'activa' ? '#e74c3c' : e.estado === 'confirmada' ? '#e67e22' : '#95a5a6';
+      const color = e.estado === 'activa' ? '#e74c3c' : ['confirmada','en_gestion'].includes(e.estado) ? '#e67e22' : '#95a5a6';
       const mk = L.circleMarker([e.lat, e.lng], { radius: 10, color, fillColor: color, fillOpacity: .6, weight: 3 })
         .addTo(map)
         .bindPopup(`<b>${e.perfiles?.nombre || 'Empleado'}</b><br>${ESTADOS[e.estado] || e.estado}<br>${e.pacientes ? 'Paciente: ' + e.pacientes.nombre + ' ' + (e.pacientes.apellido || '') : ''}<br>${fmtFecha(e.created_at)}`);
@@ -137,23 +169,23 @@
         </div>
       </div>
       <div class="card">
-        <h2>Historial ({lista.filter(e => e.estado !== 'activa' && e.estado !== 'confirmada').length})</h2>
-        {#each lista.filter(e => e.estado !== 'activa' && e.estado !== 'confirmada') as e}
+        <h2>Historial ({lista.filter(e => !['activa','confirmada','en_gestion'].includes(e.estado)).length})</h2>
+        {#each lista.filter(e => !['activa','confirmada','en_gestion'].includes(e.estado)) as e}
           <div class="hist">
             <b>{e.perfiles?.nombre || '—'}</b> · {ESTADOS[e.estado] || e.estado} · {fmtFecha(e.created_at)}
             {#if e.motivo_cancelacion}<span class="mut"> — motivo: {e.motivo_cancelacion}</span>{/if}
           </div>
         {/each}
-        {#if !lista.filter(e => e.estado !== 'activa' && e.estado !== 'confirmada').length}
+        {#if !lista.filter(e => !['activa','confirmada','en_gestion'].includes(e.estado)).length}
           <p class="mut">Sin incidentes previos.</p>
         {/if}
       </div>
     </section>
 
     <section class="col-lista">
-      <h2>Alertas activas ({lista.filter(e => e.estado === 'activa' || e.estado === 'confirmada').length})</h2>
+      <h2>Alertas activas ({lista.filter(e => ['activa','confirmada','en_gestion'].includes(e.estado)).length})</h2>
       {#if loading}<p class="mut">Cargando…</p>{/if}
-      {#each lista.filter(e => e.estado === 'activa' || e.estado === 'confirmada') as e}
+      {#each lista.filter(e => ['activa','confirmada','en_gestion'].includes(e.estado)) as e}
         {@const emp = e.perfiles}
         {@const pac = e.pacientes}
         <div class="card alerta {e.estado}">
@@ -186,18 +218,45 @@
           </div>
           <div class="mut">Respuesta: {e.estado === 'confirmada' ? tiempoRespuesta(e) : 'pendiente'}</div>
 
+          {#if e.empleado_confirmo_at}
+            <div class="mut">✔ Empleado confirmó recepción del aviso: {fmtFecha(e.empleado_confirmo_at)}</div>
+          {:else if ['confirmada','en_gestion'].includes(e.estado)}
+            <div class="mut">⏳ Esperando que el empleado confirme recepción del aviso</div>
+          {/if}
           <div class="acciones">
             {#if esAdmin && e.estado === 'activa'}
-              <button class="btn-confirmar" onclick={() => confirmar(e)}>✔ CONFIRMAR RECEPCIÓN</button>
+              <button class="btn-confirmar" onclick={() => confirmar(e)}>✔ YA ESTOY ENTERADO DE LA EMERGENCIA</button>
             {/if}
-            {#if esAdmin && (e.estado === 'activa' || e.estado === 'confirmada')}
+            {#if esAdmin && e.estado === 'confirmada'}
+              <button class="btn-gestion" onclick={() => gestionar(e)}>🛠 Estoy gestionando la ayuda</button>
+            {/if}
+            {#if esAdmin && ['activa','confirmada','en_gestion'].includes(e.estado)}
               <button class="btn-atender" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}>📝 Registrar atención</button>
             {/if}
-            {#if e.estado === 'activa' || e.estado === 'confirmada'}
+            {#if esAdmin && ['confirmada','en_gestion','atendida'].includes(e.estado)}
+              <button class="btn-cerrar" onclick={() => cerrar(e)}>🔒 Cerrar incidente</button>
+            {/if}
+            {#if ['activa','confirmada','en_gestion','atendida'].includes(e.estado)}
+              <button class="btn-chat" onclick={() => toggleChat(e)}>💬 Mensajes</button>
               <button class="btn-cancelar" onclick={() => cancelar(e)}>✖ Falsa alarma</button>
             {/if}
             <button class="btn-eventos" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}>📋 Bitácora</button>
           </div>
+
+          {#if chatAbierto === e.id}
+            <div class="chat">
+              {#each mensajes as m}
+                <div class="msg" class:mio={m.remitente_id === me?.user?.id}>
+                  <b>{nombreRemitente(m)}</b> <span class="mut">{fmtFecha(m.created_at)}</span>
+                  <div>{m.mensaje}</div>
+                </div>
+              {:else}<p class="mut">Sin mensajes aún.</p>{/each}
+              <div class="chat-input">
+                <input placeholder="Escribe una indicación o mensaje…" bind:value={mensajeTexto} onkeydown={(ev) => ev.key === 'Enter' && enviarMensaje(e)} />
+                <button class="btn-atender" onclick={() => enviarMensaje(e)}>Enviar</button>
+              </div>
+            </div>
+          {/if}
 
           {#if eventoAbierto === e.id}
             <div class="detalle">
@@ -251,6 +310,16 @@
   .btn-atender { background: #2c3e50; color: #fff; }
   .btn-cancelar { background: #f3f4f6; color: #b91c1c; }
   .btn-eventos { background: #eef2ff; color: #3730a3; }
+  .btn-gestion { background: #b45309; color: #fff; }
+  .btn-cerrar { background: #374151; color: #fff; }
+  .btn-chat { background: #0ea5e9; color: #fff; }
+  .badge.en_gestion { background: #b45309; }
+  .badge.cerrada { background: #374151; }
+  .chat { margin-top: .8rem; border-top: 1px dashed #d1d5db; padding-top: .6rem; max-height: 260px; overflow-y: auto; }
+  .msg { background: #f3f4f6; border-radius: 10px; padding: .5rem .7rem; margin: .4rem 0; font-size: .88rem; }
+  .msg.mio { background: #dbeafe; }
+  .chat-input { display: flex; gap: .5rem; margin-top: .5rem; }
+  .chat-input input { flex: 1; padding: .55rem; border: 1px solid #d1d5db; border-radius: 8px; }
   .detalle { margin-top: .8rem; border-top: 1px dashed #d1d5db; padding-top: .6rem; }
   .detalle input { display: block; width: 100%; margin: .4rem 0; padding: .5rem; border: 1px solid #d1d5db; border-radius: 8px; box-sizing: border-box; }
   .ev { font-size: .8rem; padding: .25rem 0; border-bottom: 1px solid #f3f4f6; }

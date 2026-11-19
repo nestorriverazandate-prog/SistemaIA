@@ -4428,7 +4428,7 @@ app.post('/api/emergencias/:id/ubicacion', requireUser, async (req, res) => {
   try {
     const { lat, lng } = req.body || {};
     const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
-    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'Emergencia no activa' });
+    if (!em || !['activa','confirmada','en_gestion'].includes(em.estado)) return res.status(404).json({ error: 'Emergencia no activa' });
     if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
     await supabase.from('emergencias').update({ lat, lng }).eq('id', req.params.id);
     await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'gps', detalle: `${lat},${lng}` });
@@ -4441,7 +4441,7 @@ app.post('/api/emergencias/:id/cancelar', requireUser, async (req, res) => {
   try {
     const { motivo } = req.body || {};
     const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
-    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
+    if (!em || !['activa','confirmada','en_gestion'].includes(em.estado)) return res.status(404).json({ error: 'No está activa' });
     if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
     await supabase.from('emergencias').update({ estado: 'cancelada', cancelada_at: new Date().toISOString(), motivo_cancelacion: motivo || 'No especificado' }).eq('id', req.params.id);
     await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'cancelacion', detalle: motivo || 'Sin motivo' });
@@ -4452,31 +4452,146 @@ app.post('/api/emergencias/:id/cancelar', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
-// Confirmar recepción (solo directivo)
+// El directivo confirma que está enterado → notifica al empleado de inmediato
+const MSG_ENTERADO = 'TU ALERTA DE EMERGENCIA HA SIDO RECIBIDA.\n\nEl directivo ya está enterado de tu situación y está gestionando la ayuda correspondiente.\n\nMantén la calma, busca un lugar seguro si es posible y permanece atento a las indicaciones y comunicaciones del directivo.\n\nNO ESTÁS SOLO. ESTAMOS ATENDIENDO TU EMERGENCIA.';
+
 app.post('/api/emergencias/:id/confirmar', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const { data: em } = await supabase.from('emergencias').select('estado').eq('id', req.params.id).maybeSingle();
-    if (!em || em.estado !== 'activa') return res.status(404).json({ error: 'No está activa' });
+    const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em || !['activa'].includes(em.estado)) return res.status(404).json({ error: 'No está activa' });
     await supabase.from('emergencias').update({ estado: 'confirmada', confirmada_at: new Date().toISOString() }).eq('id', req.params.id);
-    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'confirmacion', detalle: `Confirmada por ${req.user.perfil?.nombre || req.user.email}` });
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'confirmacion', detalle: `Directivo enterado: ${req.user.perfil?.nombre || req.user.email}` });
+    // Notificación prioritaria al empleado (aparece en su app al instante vía SSE)
+    if (em.empleado_id) {
+      await supabase.from('notificaciones').insert({
+        destinatario_id: em.empleado_id, tipo: 'emergencia', mensaje: MSG_ENTERADO,
+        datos: { emergencia_id: req.params.id, estado: 'confirmada' }
+      });
+      await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'aviso_empleado', detalle: 'Notificación de recepción enviada al empleado' });
+    }
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, confirmada: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
-// Marcar atendida con acciones registradas (solo directivo)
+// El directivo marca que está gestionando la ayuda
+app.post('/api/emergencias/:id/gestion', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em || !['activa', 'confirmada'].includes(em.estado)) return res.status(404).json({ error: 'Estado inválido' });
+    await supabase.from('emergencias').update({ estado: 'en_gestion', gestionada_at: new Date().toISOString() }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'gestion', detalle: `Ayuda en gestión por ${req.user.perfil?.nombre || req.user.email}` });
+    if (em.empleado_id) await supabase.from('notificaciones').insert({
+      destinatario_id: em.empleado_id, tipo: 'emergencia',
+      mensaje: 'El directivo está gestionando la ayuda para tu emergencia. Mantente en un lugar seguro y atento a tu teléfono.',
+      datos: { emergencia_id: req.params.id, estado: 'en_gestion' }
+    });
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, gestion: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Empleado confirma que recibió el aviso del directivo
+app.post('/api/emergencias/:id/confirmar-recepcion', requireUser, async (req, res) => {
+  try {
+    const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
+    if (!em || em.empleado_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+    if (!['confirmada', 'en_gestion'].includes(em.estado)) return res.status(404).json({ error: 'Sin aviso pendiente' });
+    await supabase.from('emergencias').update({ empleado_confirmo_at: new Date().toISOString() }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'recepcion_empleado', detalle: `${req.user.perfil?.nombre || req.user.email} confirmó que recibió el aviso` });
+    const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+    for (const a of admins || []) await supabase.from('notificaciones').insert({
+      destinatario_id: a.id, tipo: 'emergencia',
+      mensaje: `${req.user.perfil?.nombre || req.user.email} confirmó que recibió tu aviso de emergencia.`,
+      datos: { emergencia_id: req.params.id }
+    });
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, recepcion: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Marcar emergencia atendida (contacto logrado)
 app.post('/api/emergencias/:id/atender', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
     const { acciones, contacto_realizado } = req.body || {};
     const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
-    if (!em || !['activa', 'confirmada'].includes(em.estado)) return res.status(404).json({ error: 'No se puede atender' });
+    if (!em || !['activa', 'confirmada', 'en_gestion'].includes(em.estado)) return res.status(404).json({ error: 'No se puede atender' });
     await supabase.from('emergencias').update({ estado: 'atendida', atendida_at: new Date().toISOString(), acciones: acciones || null }).eq('id', req.params.id);
     await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'atencion', detalle: `${acciones || ''} | Contacto: ${contacto_realizado || 'no registrado'}` });
-    if (em.empleado_id) await supabase.from('notificaciones').insert({ destinatario_id: em.empleado_id, tipo: 'emergencia', mensaje: 'Tu emergencia fue atendida por el directivo. Revisa el Centro de Emergencias.', datos: { emergencia_id: req.params.id } });
+    if (em.empleado_id) await supabase.from('notificaciones').insert({
+      destinatario_id: em.empleado_id, tipo: 'emergencia',
+      mensaje: 'Se estableció contacto y tu emergencia está siendo atendida. El directivo registró las acciones en el Centro de Emergencias.',
+      datos: { emergencia_id: req.params.id, estado: 'atendida' }
+    });
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, atendida: true } });
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Cerrar incidente con observaciones finales (solo directivo)
+app.post('/api/emergencias/:id/cerrar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { observaciones } = req.body || {};
+    const { data: em } = await supabase.from('emergencias').select('estado, empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em || !['atendida', 'en_gestion', 'confirmada'].includes(em.estado)) return res.status(404).json({ error: 'No se puede cerrar' });
+    await supabase.from('emergencias').update({ estado: 'cerrada', acciones: observaciones || null }).eq('id', req.params.id);
+    await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'cierre', detalle: observaciones || `Cerrada por ${req.user.perfil?.nombre || req.user.email}` });
+    if (em.empleado_id) await supabase.from('notificaciones').insert({
+      destinatario_id: em.empleado_id, tipo: 'emergencia',
+      mensaje: 'Tu emergencia fue cerrada por el directivo. Revisa el Centro de Emergencias para ver el resumen.',
+      datos: { emergencia_id: req.params.id, estado: 'cerrada' }
+    });
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, cerrada: true } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ---------- Canal de mensajes de la emergencia ----------
+app.get('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
+  try {
+    const { data: em } = await supabase.from('emergencias').select('empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em) return res.status(404).json({ error: 'No encontrada' });
+    if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    // Marcar como leídos los mensajes del otro participante
+    await supabase.from('emergencia_mensajes').update({ leido: true }).eq('emergencia_id', req.params.id).neq('remitente_id', req.user.id);
+    const { data, error } = await supabase.from('emergencia_mensajes').select('*, perfiles!emergencia_mensajes_remitente_id_fkey(nombre)').eq('emergencia_id', req.params.id).order('created_at', { ascending: true }).limit(500);
+    if (error) {
+      // Si el embed del FK falla, devolver sin nombre
+      const { data: d2 } = await supabase.from('emergencia_mensajes').select('*').eq('emergencia_id', req.params.id).order('created_at', { ascending: true }).limit(500);
+      return res.json({ mensajes: d2 || [] });
+    }
+    res.json({ mensajes: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+app.post('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
+  try {
+    const { mensaje } = req.body || {};
+    if (!mensaje || !String(mensaje).trim()) return res.status(400).json({ error: 'Mensaje vacío' });
+    const { data: em } = await supabase.from('emergencias').select('empleado_id, estado').eq('id', req.params.id).maybeSingle();
+    if (!em || !['activa', 'confirmada', 'en_gestion', 'atendida'].includes(em.estado)) return res.status(404).json({ error: 'Emergencia no disponible' });
+    if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.from('emergencia_mensajes').insert({
+      emergencia_id: req.params.id, remitente_id: req.user.id, mensaje: String(mensaje).trim().slice(0, 1000)
+    }).select().single();
+    if (error) throw error;
+    // Notificar al otro participante
+    const destinatario = em.empleado_id === req.user.id
+      ? (await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado'))?.data || []
+      : [em.empleado_id];
+    for (const d of destinatario) {
+      await supabase.from('notificaciones').insert({
+        destinatario_id: d.id || d, tipo: 'emergencia',
+        mensaje: `Mensaje en emergencia: ${String(mensaje).trim().slice(0, 80)}`,
+        datos: { emergencia_id: req.params.id }
+      });
+    }
+    broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, mensaje: true } });
+    res.json({ mensaje: data });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 

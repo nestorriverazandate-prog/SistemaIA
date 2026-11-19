@@ -698,3 +698,21 @@ alter table public.emergencia_eventos enable row level security;
 
 alter table public.perfiles add column if not exists contacto_emergencia_nombre text;
 alter table public.perfiles add column if not exists contacto_emergencia_telefono text;
+
+-- ================= EMERGENCIAS: comunicación bidireccional =================
+alter table public.emergencias drop constraint if exists emergencias_estado_check;
+alter table public.emergencias add constraint emergencias_estado_check
+  check (estado in ('activa','confirmada','en_gestion','atendida','cerrada','cancelada'));
+alter table public.emergencias add column if not exists empleado_confirmo_at timestamptz;
+alter table public.emergencias add column if not exists gestionada_at timestamptz;
+
+create table if not exists public.emergencia_mensajes (
+  id uuid primary key default gen_random_uuid(),
+  emergencia_id uuid not null references public.emergencias (id) on delete cascade,
+  remitente_id uuid not null references public.perfiles (id) on delete cascade,
+  mensaje text not null,
+  leido boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists emerg_msg_idx on public.emergencia_mensajes (emergencia_id);
+alter table public.emergencia_mensajes enable row level security;

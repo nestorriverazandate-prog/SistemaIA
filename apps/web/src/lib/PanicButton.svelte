@@ -12,6 +12,9 @@
   let watchId = $state(null);
   let ultimoEnvio = 0;
   let me = $state(null);
+  let estadoEmergencia = $state('activa');
+  let empleadoConfirmo = $state(false);
+  let pollEmergencia = null;
 
   function posActual() {
     return new Promise((resolve) => {
@@ -50,7 +53,10 @@
       emergencia = res.emergencia;
       paciente = res.paciente;
       fase = 'activa';
+      estadoEmergencia = 'activa';
+      empleadoConfirmo = false;
       iniciarSeguimientoGps();
+      iniciarPollingEstado();
     } catch (e) {
       error = e.message || 'No se pudo activar la emergencia';
       fase = 'error';
@@ -84,7 +90,8 @@
       });
     } catch {}
     detenerGps();
-    fase = 'idle'; emergencia = null; paciente = null; motivo = '';
+    if (pollEmergencia) { clearInterval(pollEmergencia); pollEmergencia = null; }
+    fase = 'idle'; emergencia = null; paciente = null; motivo = ''; estadoEmergencia = 'activa'; empleadoConfirmo = false;
   }
 
   function detenerGps() {
@@ -92,12 +99,47 @@
     watchId = null;
   }
 
+  async function confirmarRecepcion() {
+    if (!emergencia?.id) return;
+    try {
+      await api.raw(`/api/emergencias/${emergencia.id}/confirmar-recepcion`, { method: 'POST', body: '{}' });
+      empleadoConfirmo = true;
+    } catch {}
+  }
+
+  function iniciarPollingEstado() {
+    if (pollEmergencia) clearInterval(pollEmergencia);
+    pollEmergencia = setInterval(async () => {
+      if (!emergencia?.id || fase !== 'activa') return;
+      try {
+        const d = await api.raw('/api/emergencias');
+        const actual = (d.emergencias || []).find((e) => e.id === emergencia.id);
+        if (!actual) return;
+        estadoEmergencia = actual.estado;
+        empleadoConfirmo = !!actual.empleado_confirmo_at;
+        if (!['activa', 'confirmada', 'en_gestion', 'atendida'].includes(actual.estado)) {
+          detenerGps();
+          if (pollEmergencia) { clearInterval(pollEmergencia); pollEmergencia = null; }
+          setTimeout(() => { fase = 'idle'; emergencia = null; paciente = null; estadoEmergencia = 'activa'; }, 4000);
+        }
+      } catch {}
+    }, 8000);
+  }
+
+  const ETIQUETAS = {
+    activa: '🚨 ALERTA ACTIVADA — esperando respuesta del directivo',
+    confirmada: '✔ DIRECTIVO ENTERADO — está gestionando la ayuda',
+    en_gestion: '🛠 AYUDA EN GESTIÓN',
+    atendida: '🤝 EMERGENCIA ATENDIDA',
+    cerrada: '🔒 EMERGENCIA CERRADA'
+  };
+
   onMount(async () => {
     visible = !!getToken();
     if (!visible) return;
     try { me = await api.raw('/api/me'); } catch {}
   });
-  onDestroy(detenerGps);
+  onDestroy(() => { detenerGps(); if (pollEmergencia) clearInterval(pollEmergencia); });
 </script>
 
 {#if visible}
@@ -123,7 +165,18 @@
   {:else if fase === 'activa'}
     <div class="panel activa">
       <strong>🚨 EMERGENCIA ACTIVA</strong>
-      <p class="sub">Directivo notificado{silenciosa ? ' (silencioso)' : ''}. Tu ubicación se comparte periódicamente.</p>
+      <p class="sub estado-linea">{ETIQUETAS[estadoEmergencia] || '🚨 ALERTA ACTIVADA'}</p>
+      {#if ['confirmada','en_gestion'].includes(estadoEmergencia) && !empleadoConfirmo}
+        <div class="aviso-enterado">
+          <p><b>TU ALERTA DE EMERGENCIA HA SIDO RECIBIDA.</b></p>
+          <p>El directivo ya está enterado de tu situación y está gestionando la ayuda correspondiente.</p>
+          <p>Mantén la calma, busca un lugar seguro si es posible y permanece atento a las indicaciones y comunicaciones del directivo.</p>
+          <p><b>NO ESTÁS SOLO. ESTAMOS ATENDIENDO TU EMERGENCIA.</b></p>
+          <button class="btn-rojo" onclick={confirmarRecepcion}>✔ CONFIRMAR QUE RECIBÍ EL AVISO</button>
+        </div>
+      {:else if empleadoConfirmo}
+        <p class="sub">✔ Confirmaste recepción del aviso del directivo.</p>
+      {/if}
       {#if paciente}<p class="sub">Paciente: <b>{paciente.nombre} {paciente.apellido || ''}</b></p>{/if}
       <div class="acciones">
         <a class="btn-llamar" href="tel:911">Llamar 911</a>
@@ -176,6 +229,12 @@
   }
   .motivo { padding: 8px; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; }
   .nota911 { font-size: 11px; color: #888; margin-top: 8px; }
+  .estado-linea { font-weight: 700; color: #c0392b; }
+  .aviso-enterado {
+    background: #ecfdf5; border: 1px solid #16a085; border-radius: 10px;
+    padding: 10px; margin: 8px 0; font-size: 13px; color: #065f46;
+  }
+  .aviso-enterado p { margin: 5px 0; }
   .err { color: #c0392b; font-size: 12px; font-weight: 600; }
   @media (max-width: 600px) {
     .panic-fab { left: 10px; bottom: 10px; }
