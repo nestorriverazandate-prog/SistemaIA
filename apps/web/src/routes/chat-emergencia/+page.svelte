@@ -149,7 +149,10 @@
   <div class="layout" class:solo={!actual}>
     <!-- Lista de emergencias activas -->
     <aside class="lista" bind:this={listaEl}>
-      <h2>🚨 CHAT DE EMERGENCIA</h2>
+      <div class="lista-top">
+        <h2>🚨 CHAT DE EMERGENCIA</h2>
+        <a class="btn-home2" href="/" title="Volver al inicio">⌂ Inicio</a>
+      </div>
       <p class="sub">Conversaciones activas ({emergencias.length})</p>
       {#each emergencias as e}
         <button class="item" class:sel={actual?.id === e.id} onclick={() => abrir(e)}>
@@ -185,6 +188,7 @@
             </div>
           </div>
           <div class="chat-meta">
+            <a class="btn-home" href="/" title="Volver al inicio">⌂ Inicio</a>
             <span class="estado {actual.estado}">{ESTADOS[actual.estado] || actual.estado}</span>
             {#if esAdmin && emp?.telefono}
               <a class="btn-call" href="tel:{emp.telefono}">📞 Llamar</a>
@@ -248,6 +252,14 @@
   }
   .lista h2 { font-size: .95rem; color: #c0392b; margin: 0 0 .3rem; }
   .sub, .mut { color: #6b7280; font-size: .78rem; }
+  .lista-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .btn-home, .btn-home2 {
+    background: #fff; color: #c0392b; text-decoration: none; font-weight: 800;
+    font-size: .78rem; padding: .45rem .8rem; border-radius: 999px; white-space: nowrap;
+    border: 1px solid #fecaca;
+  }
+  .btn-home2 { background: #fef2f2; }
+  .btn-home:hover, .btn-home2:hover { background: #fee2e2; }
   .pad { padding: .8rem; }
   .center-pad { text-align: center; padding: 2rem 1rem; }
   .item {
