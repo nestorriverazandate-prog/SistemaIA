@@ -107,9 +107,9 @@
     } catch {}
     cargado = true;
     if (perfil) {
-      // abrir por defecto el grupo que contiene la ruta actual
+      // todas las áreas desplegadas por defecto
       const init = {};
-      for (const g of nav) init[g.area] = grupoActivo(g);
+      for (const g of nav) init[g.area] = true;
       gruposAbiertos = init;
       document.body.classList.add('con-menu');
     }
