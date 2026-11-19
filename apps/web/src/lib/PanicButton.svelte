@@ -14,6 +14,7 @@
   let me = $state(null);
   let estadoEmergencia = $state('activa');
   let empleadoConfirmo = $state(false);
+  let minimizado = $state(false);
   let pollEmergencia = null;
 
   function posActual() {
@@ -55,6 +56,7 @@
       fase = 'activa';
       estadoEmergencia = 'activa';
       empleadoConfirmo = false;
+      minimizado = false;
       iniciarSeguimientoGps();
       iniciarPollingEstado();
     } catch (e) {
@@ -91,7 +93,7 @@
     } catch {}
     detenerGps();
     if (pollEmergencia) { clearInterval(pollEmergencia); pollEmergencia = null; }
-    fase = 'idle'; emergencia = null; paciente = null; motivo = ''; estadoEmergencia = 'activa'; empleadoConfirmo = false;
+    fase = 'idle'; emergencia = null; paciente = null; motivo = ''; estadoEmergencia = 'activa'; empleadoConfirmo = false; minimizado = false;
   }
 
   function detenerGps() {
@@ -117,6 +119,7 @@
         if (!actual) return;
         estadoEmergencia = actual.estado;
         empleadoConfirmo = !!actual.empleado_confirmo_at;
+        if (['confirmada', 'en_gestion', 'atendida'].includes(actual.estado)) minimizado = true;
         if (!['activa', 'confirmada', 'en_gestion', 'atendida'].includes(actual.estado)) {
           detenerGps();
           if (pollEmergencia) { clearInterval(pollEmergencia); pollEmergencia = null; }
@@ -135,7 +138,7 @@
   };
 
   onMount(async () => {
-    visible = !!getToken();
+    visible = !!getToken() && !window.location.pathname.startsWith('/chat-emergencia');
     if (!visible) return;
     try { me = await api.raw('/api/me'); } catch {}
   });
@@ -162,6 +165,14 @@
     </div>
   {:else if fase === 'enviando'}
     <div class="panel enviando">Enviando alerta…</div>
+  {:else if fase === 'activa' && minimizado}
+    <button class="btn-min" onclick={() => (minimizado = false)} title="Tocar para ver el estado">
+      {#if estadoEmergencia === 'en_gestion'}🛠{:else if estadoEmergencia === 'atendida'}🤝{:else}✔{/if}
+      EMERGENCIA ATENDIDA
+    </button>
+    {#if emergencia?.id}
+      <a class="btn-min-chat" href="/chat-emergencia?e={emergencia.id}">💬 Chat</a>
+    {/if}
   {:else if fase === 'activa'}
     <div class="panel activa">
       <strong>🚨 EMERGENCIA ACTIVA</strong>
@@ -181,6 +192,9 @@
       <div class="acciones">
         <a class="btn-llamar" href="tel:911">Llamar 911</a>
         {#if emergencia?.id}<a class="btn-chatlink" href="/chat-emergencia?e={emergencia.id}">💬 Chat de emergencia</a>{/if}
+        {#if ['confirmada','en_gestion','atendida'].includes(estadoEmergencia)}
+          <button class="btn-gris" onclick={() => (minimizado = true)}>➖ Minimizar</button>
+        {/if}
         <input class="motivo" placeholder="Motivo (si es falsa alarma)" bind:value={motivo} />
         <button class="btn-gris" onclick={cancelar}>Cancelar emergencia</button>
       </div>
@@ -235,6 +249,19 @@
   .motivo { padding: 8px; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; }
   .nota911 { font-size: 11px; color: #888; margin-top: 8px; }
   .estado-linea { font-weight: 700; color: #c0392b; }
+  .btn-min {
+    background: linear-gradient(135deg, #16a085, #1abc9c); color: #fff; border: none;
+    border-radius: 999px; padding: 10px 16px; font-weight: 800; font-size: 13px;
+    cursor: pointer; box-shadow: 0 4px 14px rgba(22,160,133,.5); animation: pulsoV 2s infinite;
+  }
+  .btn-min-chat {
+    background: #0ea5e9; color: #fff; text-decoration: none; border-radius: 999px;
+    padding: 8px 14px; font-weight: 800; font-size: 12px; box-shadow: 0 4px 14px rgba(14,165,233,.4);
+  }
+  @keyframes pulsoV {
+    0%,100% { box-shadow: 0 4px 14px rgba(22,160,133,.5); }
+    50% { box-shadow: 0 4px 22px rgba(22,160,133,.85); }
+  }
   .aviso-enterado {
     background: #ecfdf5; border: 1px solid #16a085; border-radius: 10px;
     padding: 10px; margin: 8px 0; font-size: 13px; color: #065f46;
