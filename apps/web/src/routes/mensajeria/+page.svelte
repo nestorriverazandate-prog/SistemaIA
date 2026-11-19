@@ -277,7 +277,7 @@
           {:else}
             <div class="chat-id"><b> Comunicados de la agencia</b></div>
           {/if}
-          <a class="btn-home" href="/" title="Inicio"> Inicio</a>
+          <a class="btn-home" href="/" title="Inicio">Inicio</a>
         </header>
 
         <div class="mensajes" bind:this={chatEl}>

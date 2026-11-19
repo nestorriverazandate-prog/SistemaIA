@@ -158,7 +158,7 @@
     <aside class="lista" bind:this={listaEl}>
       <div class="lista-top">
         <h2> CHAT DE EMERGENCIA</h2>
-        <a class="btn-home2" href="/" title="Volver al inicio"> Inicio</a>
+        <a class="btn-home2" href="/" title="Volver al inicio">Inicio</a>
       </div>
       <p class="sub">Conversaciones activas ({emergencias.length})</p>
       {#each emergencias as e}
@@ -195,12 +195,12 @@
             </div>
           </div>
           <div class="chat-meta">
-            <a class="btn-home" href="/" title="Volver al inicio"> Inicio</a>
+            <a class="btn-home" href="/" title="Volver al inicio">Inicio</a>
             <span class="estado {actual.estado}">{ESTADOS[actual.estado] || actual.estado}</span>
             {#if esAdmin && emp?.telefono}
-              <a class="btn-call" href="tel:{emp.telefono}"> Llamar</a>
+              <a class="btn-call" href="tel:{emp.telefono}">Llamar</a>
             {:else}
-              <a class="btn-call" href="tel:911"> 911</a>
+              <a class="btn-call" href="tel:911">911</a>
             {/if}
           </div>
         </header>
