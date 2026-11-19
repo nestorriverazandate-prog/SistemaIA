@@ -17,6 +17,7 @@
   let pollEmerg = null;
   let es = null;
   let ultimoEscribiendo = 0;
+  let yaAbrió = $state(false);
 
   const RAPIDOS_ADMIN = [
     '¿Te encuentras en un lugar seguro?',
@@ -65,9 +66,10 @@
     try {
       const d = await api.raw('/api/emergencias');
       emergencias = (d.emergencias || []).filter((e) => ACTIVAS.includes(e.estado));
-      if (!actual && emergencias.length) {
+      if (!actual && emergencias.length && !yaAbrió) {
         const q = new URLSearchParams(window.location.search).get('e');
         actual = emergencias.find((e) => e.id === q) || emergencias[0];
+        yaAbrió = true;
         await cargarMensajes();
       } else if (actual) {
         const sigue = emergencias.find((e) => e.id === actual.id);
@@ -89,8 +91,13 @@
 
   async function abrir(e) {
     actual = e;
+    yaAbrió = true;
     if (window.innerWidth < 800 && listaEl) listaEl.style.display = 'none';
     await cargarMensajes();
+  }
+  function volverALista() {
+    actual = null;
+    if (listaEl) listaEl.style.display = '';
   }
 
   async function enviar(t) {
@@ -146,7 +153,7 @@
   {#if loading}<div class="center">Cargando…</div>{/if}
   {#if error}<div class="alert-error">{error}</div>{/if}
 
-  <div class="layout" class:solo={!actual}>
+  <div class="layout" class:solo={!!actual}>
     <!-- Lista de emergencias activas -->
     <aside class="lista" bind:this={listaEl}>
       <div class="lista-top">
@@ -176,7 +183,7 @@
       {@const pac = actual.pacientes}
       <section class="conversacion">
         <header class="chat-header">
-          <button class="volver" onclick={() => { if (listaEl) listaEl.style.display = ''; }}>←</button>
+          <button class="volver" onclick={volverALista}>←</button>
           <div class="chat-id">
             {#if fotoUrl(emp)}<img class="foto" src={fotoUrl(emp)} alt="" />{:else}<div class="foto avatar">👤</div>{/if}
             <div>
@@ -327,9 +334,9 @@
 
   @media (max-width: 800px) {
     .lista { position: absolute; inset: 0 auto 0 0; z-index: 5; width: 85%; max-width: 320px; box-shadow: 4px 0 20px rgba(0,0,0,.15); }
+    .volver { display: block; }
     .solo .lista { display: none; }
     .solo .conversacion { width: 100%; }
-    .volver { display: block; }
     .burbuja { max-width: 85%; }
   }
 </style>
