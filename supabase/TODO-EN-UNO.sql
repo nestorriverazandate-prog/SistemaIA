@@ -716,3 +716,6 @@ create table if not exists public.emergencia_mensajes (
 );
 create index if not exists emerg_msg_idx on public.emergencia_mensajes (emergencia_id);
 alter table public.emergencia_mensajes enable row level security;
+
+-- Chat de emergencia: estado de entrega de mensajes
+alter table public.emergencia_mensajes add column if not exists entregado boolean not null default false;

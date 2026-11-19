@@ -4584,6 +4584,16 @@ app.post('/api/emergencias/:id/cerrar', requireUser, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
+// Indicador "escribiendo..." — efímero vía SSE, no se guarda en BD
+app.post('/api/emergencias/:id/escribiendo', requireUser, async (req, res) => {
+  try {
+    const { data: em } = await supabase.from('emergencias').select('empleado_id').eq('id', req.params.id).maybeSingle();
+    if (!em || (em.empleado_id !== req.user.id && !isAdmin(req))) return res.status(403).json({ error: 'Sin permiso' });
+    broadcast({ tipo: 'escribiendo', datos: { emergencia_id: req.params.id, nombre: req.user.perfil?.nombre || req.user.email } });
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Error' }); }
+});
+
 // ---------- Canal de mensajes de la emergencia ----------
 app.get('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
   try {
@@ -4591,7 +4601,7 @@ app.get('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
     if (!em) return res.status(404).json({ error: 'No encontrada' });
     if (em.empleado_id !== req.user.id && !isAdmin(req)) return res.status(403).json({ error: 'Sin permiso' });
     // Marcar como leídos los mensajes del otro participante
-    await supabase.from('emergencia_mensajes').update({ leido: true }).eq('emergencia_id', req.params.id).neq('remitente_id', req.user.id);
+    await supabase.from('emergencia_mensajes').update({ entregado: true, leido: true }).eq('emergencia_id', req.params.id).neq('remitente_id', req.user.id);
     const { data, error } = await supabase.from('emergencia_mensajes').select('*, perfiles!emergencia_mensajes_remitente_id_fkey(nombre)').eq('emergencia_id', req.params.id).order('created_at', { ascending: true }).limit(500);
     if (error) {
       // Si el embed del FK falla, devolver sin nombre

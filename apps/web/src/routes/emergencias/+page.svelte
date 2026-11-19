@@ -237,26 +237,11 @@
               <button class="btn-cerrar" onclick={() => cerrar(e)}>🔒 Cerrar incidente</button>
             {/if}
             {#if ['activa','confirmada','en_gestion','atendida'].includes(e.estado)}
-              <button class="btn-chat" onclick={() => toggleChat(e)}>💬 Mensajes</button>
+              <a class="btn-chat" href="/chat-emergencia?e={e.id}">💬 Chat emergencia</a>
               <button class="btn-cancelar" onclick={() => cancelar(e)}>✖ Falsa alarma</button>
             {/if}
             <button class="btn-eventos" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}>📋 Bitácora</button>
           </div>
-
-          {#if chatAbierto === e.id}
-            <div class="chat">
-              {#each mensajes as m}
-                <div class="msg" class:mio={m.remitente_id === me?.user?.id}>
-                  <b>{nombreRemitente(m)}</b> <span class="mut">{fmtFecha(m.created_at)}</span>
-                  <div>{m.mensaje}</div>
-                </div>
-              {:else}<p class="mut">Sin mensajes aún.</p>{/each}
-              <div class="chat-input">
-                <input placeholder="Escribe una indicación o mensaje…" bind:value={mensajeTexto} onkeydown={(ev) => ev.key === 'Enter' && enviarMensaje(e)} />
-                <button class="btn-atender" onclick={() => enviarMensaje(e)}>Enviar</button>
-              </div>
-            </div>
-          {/if}
 
           {#if eventoAbierto === e.id}
             <div class="detalle">

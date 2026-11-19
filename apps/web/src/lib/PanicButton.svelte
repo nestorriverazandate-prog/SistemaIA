@@ -180,6 +180,7 @@
       {#if paciente}<p class="sub">Paciente: <b>{paciente.nombre} {paciente.apellido || ''}</b></p>{/if}
       <div class="acciones">
         <a class="btn-llamar" href="tel:911">Llamar 911</a>
+        {#if emergencia?.id}<a class="btn-chatlink" href="/chat-emergencia?e={emergencia.id}">💬 Chat de emergencia</a>{/if}
         <input class="motivo" placeholder="Motivo (si es falsa alarma)" bind:value={motivo} />
         <button class="btn-gris" onclick={cancelar}>Cancelar emergencia</button>
       </div>
@@ -225,6 +226,10 @@
   }
   .btn-llamar {
     background: #16a085; color: #fff; text-align: center; border-radius: 10px;
+    padding: 10px; font-weight: 700; text-decoration: none;
+  }
+  .btn-chatlink {
+    background: #0ea5e9; color: #fff; text-align: center; border-radius: 10px;
     padding: 10px; font-weight: 700; text-decoration: none;
   }
   .motivo { padding: 8px; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; }
