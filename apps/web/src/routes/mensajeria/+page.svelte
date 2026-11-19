@@ -64,14 +64,22 @@
     return d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' }) + ' ' + fmtHora(iso);
   }
   function fotoUrl(p) { return p?.foto_path ? `/api/perfiles/${p.id}/foto?t=${Date.now()}` : null; }
+  function nombreDe(p) { return p?.nombre || p?.email || 'Usuario'; }
+  function perfilDe(partner) {
+    if (partner === 'directivo') return { nombre: 'Directivo', rol: 'admin' };
+    return directorio.find((u) => u.id === partner)
+      || conversaciones.find((c) => c.partner === partner)?.perfil
+      || (actual && actual !== 'comunicados' && actual.partner === partner ? actual.perfil : null)
+      || null;
+  }
   function nombreConv(c) {
     if (c?.partner === 'directivo') return 'Directivo';
-    return c?.perfil?.nombre || c?.perfil?.email || 'Usuario';
+    return nombreDe(c?.perfil || perfilDe(c?.partner));
   }
   function rolLabel(r) { return { admin: 'Directivo', staff: 'Trabajador', paciente: 'Paciente', familiar: 'Familiar', cuidador: 'Cuidador' }[r] || r || ''; }
 
   const convActual = $derived(actual && actual !== 'comunicados' ? conversaciones.find((x) => x.partner === actual.partner) : null);
-  const perfilActual = $derived(convActual?.perfil || (actual && actual !== 'comunicados' ? actual.perfil : null));
+  const perfilActual = $derived(convActual?.perfil || (actual && actual !== 'comunicados' ? (actual.perfil || perfilDe(actual.partner)) : null));
   const tituloActual = $derived.by(() => {
     if (!actual) return '';
     if (actual === 'comunicados') return 'Comunicados';
@@ -276,7 +284,7 @@
       </button>
 
       {#each CONVS_FILTRO as c}
-        {@const p = c.perfil}
+        {@const p = c.perfil || perfilDe(c.partner)}
         <button class="conv" class:sel={actual?.partner === c.partner} class:archivada={c.estado?.archivada} onclick={() => abrir(c)}>
           {#if fotoUrl(p)}<img class="avatar" src={fotoUrl(p)} alt="" />{:else}<div class="avatar">U</div>{/if}
           <div class="conv-info">
