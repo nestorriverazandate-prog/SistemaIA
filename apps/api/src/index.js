@@ -4372,6 +4372,32 @@ async function llamarYMensaje(emergenciaId, emp) {
   return resultados;
 }
 
+// SMS genérico de emergencia (Twilio). Regresa estado y lo registra en la bitácora.
+async function enviarSms(telRaw, body) {
+  const tel = aE164(telRaw);
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM || !tel) return 'no_configurado';
+  try {
+    const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+    await client.messages.create({ to: tel, from: TWILIO_FROM, body: String(body).slice(0, 1600) });
+    return 'enviado';
+  } catch (e) { return 'error: ' + (e.message || e.code || 'desconocido'); }
+}
+
+async function smsEmergencia(emergenciaId, telRaw, body) {
+  const r = await enviarSms(telRaw, body);
+  await supabase.from('emergencia_eventos').insert({
+    emergencia_id: emergenciaId, tipo: 'sms',
+    detalle: `${r} -> ${aE164(telRaw) || 'sin teléfono'} | ${String(body).slice(0, 120)}`
+  });
+  return r;
+}
+
+async function telEmpleado(empleadoId) {
+  if (!empleadoId) return '';
+  const { data } = await supabase.from('perfiles').select('telefono, contactos_emergencia').eq('id', empleadoId).maybeSingle();
+  return data?.telefono || data?.contactos_emergencia?.[0]?.telefono || '';
+}
+
 // Activar botón de pánico (cualquier usuario autenticado)
 app.post('/api/emergencias', requireUser, async (req, res) => {
   try {
@@ -4469,6 +4495,8 @@ app.post('/api/emergencias/:id/confirmar', requireUser, async (req, res) => {
         datos: { emergencia_id: req.params.id, estado: 'confirmada' }
       });
       await supabase.from('emergencia_eventos').insert({ emergencia_id: req.params.id, tipo: 'aviso_empleado', detalle: 'Notificación de recepción enviada al empleado' });
+      const tel = await telEmpleado(em.empleado_id);
+      await smsEmergencia(req.params.id, tel, 'AGI EMERGENCIA: Tu alerta fue recibida por el directivo, quien esta gestionando la ayuda. Mantente en un lugar seguro y atento a tu telefono.');
     }
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, confirmada: true } });
     res.json({ ok: true });
@@ -4488,6 +4516,8 @@ app.post('/api/emergencias/:id/gestion', requireUser, async (req, res) => {
       mensaje: 'El directivo está gestionando la ayuda para tu emergencia. Mantente en un lugar seguro y atento a tu teléfono.',
       datos: { emergencia_id: req.params.id, estado: 'en_gestion' }
     });
+    const telG = await telEmpleado(em.empleado_id);
+    await smsEmergencia(req.params.id, telG, 'AGI EMERGENCIA: El directivo esta gestionando la ayuda para ti. Mantente en un lugar seguro y atento a tu telefono.');
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, gestion: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4526,6 +4556,8 @@ app.post('/api/emergencias/:id/atender', requireUser, async (req, res) => {
       mensaje: 'Se estableció contacto y tu emergencia está siendo atendida. El directivo registró las acciones en el Centro de Emergencias.',
       datos: { emergencia_id: req.params.id, estado: 'atendida' }
     });
+    const telA = await telEmpleado(em.empleado_id);
+    await smsEmergencia(req.params.id, telA, 'AGI EMERGENCIA: Se establecio contacto y tu emergencia esta siendo atendida por el directivo.');
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, atendida: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4545,6 +4577,8 @@ app.post('/api/emergencias/:id/cerrar', requireUser, async (req, res) => {
       mensaje: 'Tu emergencia fue cerrada por el directivo. Revisa el Centro de Emergencias para ver el resumen.',
       datos: { emergencia_id: req.params.id, estado: 'cerrada' }
     });
+    const telC = await telEmpleado(em.empleado_id);
+    await smsEmergencia(req.params.id, telC, 'AGI EMERGENCIA: Tu emergencia fue cerrada por el directivo. Revisa el Centro de Emergencias para el resumen.');
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, cerrada: true } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -4590,6 +4624,11 @@ app.post('/api/emergencias/:id/mensajes', requireUser, async (req, res) => {
         datos: { emergencia_id: req.params.id }
       });
     }
+    // SMS al otro participante
+    const esEmpleado = em.empleado_id === req.user.id;
+    const telMsg = esEmpleado ? DIRECTIVO_TEL : await telEmpleado(em.empleado_id);
+    const quien = req.user.perfil?.nombre || req.user.email;
+    await smsEmergencia(req.params.id, telMsg, `AGI EMERGENCIA (${quien}): ${String(mensaje).trim().slice(0, 140)}`);
     broadcast({ tipo: 'emergencia', datos: { emergencia_id: req.params.id, mensaje: true } });
     res.json({ mensaje: data });
   } catch (e) { res.status(500).json({ error: 'Error' }); }
