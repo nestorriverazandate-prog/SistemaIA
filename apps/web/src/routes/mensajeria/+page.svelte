@@ -43,6 +43,19 @@
     )
   );
 
+  const GRUPOS = [
+    { clave: 'empleados', titulo: 'Empleados', roles: ['staff', 'cuidador'] },
+    { clave: 'familiares', titulo: 'Familiares', roles: ['familiar'] },
+    { clave: 'pacientes', titulo: 'Pacientes', roles: ['paciente'] },
+    { clave: 'otros', titulo: 'Otros perfiles', roles: [] }
+  ];
+  const USUARIOS_POR_GRUPO = $derived.by(() => {
+    return GRUPOS.map((g) => ({
+      ...g,
+      usuarios: USUARIOS_FILTRO.filter((u) => g.roles.includes(u.rol) || (!g.roles.length && !GRUPOS.some((o) => o.roles.includes(u.rol))))
+    })).filter((g) => g.usuarios.length);
+  });
+
   function esMio(m) { return m.emisor_id === miId; }
   function fmtHora(iso) { return new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }); }
   function fmtFechaMsg(iso) {
@@ -280,16 +293,18 @@
         {#if !q}<p class="mut pad">Sin conversaciones todavía.</p>{/if}
       {/each}
 
-      {#if esAdmin && USUARIOS_FILTRO.length}
-        <p class="seccion">Todos los usuarios</p>
-        {#each USUARIOS_FILTRO as u}
-          <button class="conv" onclick={() => abrirUsuario(u)}>
-            {#if fotoUrl(u)}<img class="avatar" src={fotoUrl(u)} alt="" />{:else}<div class="avatar">U</div>{/if}
-            <div class="conv-info">
-              <b>{u.nombre || u.email}</b>
-              <span class="mut">{rolLabel(u.rol)}{u.profesion ? ' · ' + u.profesion : ''}</span>
-            </div>
-          </button>
+      {#if esAdmin}
+        {#each USUARIOS_POR_GRUPO as g}
+          <p class="seccion">{g.titulo}</p>
+          {#each g.usuarios as u}
+            <button class="conv" onclick={() => abrirUsuario(u)}>
+              {#if fotoUrl(u)}<img class="avatar" src={fotoUrl(u)} alt="" />{:else}<div class="avatar">U</div>{/if}
+              <div class="conv-info">
+                <b>{u.nombre || u.email}</b>
+                <span class="mut">{rolLabel(u.rol)}{u.profesion ? ' · ' + u.profesion : ''}</span>
+              </div>
+            </button>
+          {/each}
         {/each}
       {/if}
       {#if esAdmin && !USUARIOS_FILTRO.length && !q}
