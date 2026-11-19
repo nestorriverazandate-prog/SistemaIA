@@ -161,7 +161,7 @@
 {#if sel}
 <div class="overlay" role="presentation" onclick={() => sel = null}>
  <div class="sheet" onclick={(e) => e.stopPropagation()}>
-  <div class="sheet-head"><h3>{sel.pacientes?.nombre} {sel.pacientes?.apellido} — {sel.periodo}</h3><button class="mini ghost" onclick={() => sel = null}>✕</button></div>
+  <div class="sheet-head"><h3>{sel.pacientes?.nombre} {sel.pacientes?.apellido} — {sel.periodo}</h3><button class="mini ghost" onclick={() => sel = null}>Cerrar</button></div>
   <p class="muted small">Familiar: {sel.perfiles?.nombre || sel.perfiles?.email} · Profesional: {profDe(sel)} · Paquete: {sel.pacientes?.paquetes?.nombre || '—'} · Estado: {sel.estado}{sel.respondida_at ? ' · Respondida ' + fmtFecha(sel.respondida_at) : ''}</p>
   {#if sel.estado === 'respondida'}
    <p class="prom-big">Promedio: <strong>{promDe(sel)}/5</strong></p>

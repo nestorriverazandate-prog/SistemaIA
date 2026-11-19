@@ -58,7 +58,7 @@
       <div class="linea"></div>
       <p>Responsable Académico<br /><small>Academia de Profesionales Gerontológicos</small></p>
     </div>
-    <div class="acciones"><button onclick={() => window.print()}>🖨️ Imprimir / Guardar PDF</button><a href="/academia">← Volver a la academia</a></div>
+    <div class="acciones"><button onclick={() => window.print()}> Imprimir / Guardar PDF</button><a href="/academia">← Volver a la academia</a></div>
   </div>
 {/if}
 

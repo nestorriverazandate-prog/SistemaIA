@@ -192,10 +192,10 @@
  .chip { background: #eef4f8; color: oklch(0.35 0.08 222); border: 1px solid #cfdde6; }
  .chip:hover { background: oklch(0.9 0.03 222); }
  .chip.elegido { background: oklch(0.45 0.12 222); color: #fff; border-color: oklch(0.45 0.12 222); }
- .chip.elegido::before { content: '✓ '; }
+ .chip.elegido::before { content: ' '; }
  .equipo-card.elegido { background: oklch(0.45 0.12 222); border-color: oklch(0.45 0.12 222); }
  .equipo-card.elegido strong, .equipo-card.elegido span, .equipo-card.elegido em { color: #f2eee2; }
- .equipo-card.elegido::after { content: '✓ agregado'; font-size: .72rem; color: #bfe3ff; font-style: normal; }
+ .equipo-card.elegido::after { content: ' agregado'; font-size: .72rem; color: #bfe3ff; font-style: normal; }
  .equipo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .6rem; margin: .4rem 0 1rem; }
  .equipo-card { display: grid; gap: .2rem; text-align: left; background: #fbf9f4; color: #1c2733; border: 1px solid #e0d9c8; padding: .7rem .9rem; border-radius: 10px; }
  .equipo-card:hover { border-color: oklch(0.55 0.12 222); background: #f2f7fa; }

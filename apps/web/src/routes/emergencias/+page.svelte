@@ -23,9 +23,9 @@
   let es = null;
 
   const ESTADOS = {
-    activa: '🚨 ALERTA ACTIVADA', confirmada: '✔ DIRECTIVO ENTERADO',
-    en_gestion: '🛠 AYUDA EN GESTIÓN', atendida: '🤝 EMERGENCIA ATENDIDA',
-    cerrada: '🔒 EMERGENCIA CERRADA', cancelada: 'CANCELADA'
+    activa: ' ALERTA ACTIVADA', confirmada: ' DIRECTIVO ENTERADO',
+    en_gestion: ' AYUDA EN GESTIÓN', atendida: ' EMERGENCIA ATENDIDA',
+    cerrada: ' EMERGENCIA CERRADA', cancelada: 'CANCELADA'
   };
 
   function fmtFecha(iso) {
@@ -149,7 +149,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>🚨 CENTRO DE EMERGENCIAS</h1>
+      <h1> CENTRO DE EMERGENCIAS</h1>
       <p class="sub">Alertas del botón de pánico · {new Date().toLocaleString('es-MX')}</p>
     </div>
     <a class="ghost link" href="/">← Inicio</a>
@@ -195,19 +195,19 @@
           </div>
           <div class="datos">
             <div class="foto-wrap">
-              {#if fotoUrl(emp)}<img class="foto" src={fotoUrl(emp)} alt="" />{:else}<div class="foto placeholder">👤</div>{/if}
+              {#if fotoUrl(emp)}<img class="foto" src={fotoUrl(emp)} alt="" />{:else}<div class="foto placeholder"></div>{/if}
             </div>
             <div>
               <b>{emp?.nombre || 'Empleado'}</b>
               <div class="mut">{emp?.profesion || ''} {emp?.telefono ? '· ' + emp.telefono : ''}</div>
-              <div class="mut">📞 <a href="tel:{emp?.telefono}">{emp?.telefono || 'sin teléfono'}</a>
+              <div class="mut"> <a href="tel:{emp?.telefono}">{emp?.telefono || 'sin teléfono'}</a>
                 {#if e.contacto_respaldo} · respaldo: {e.contacto_respaldo}{/if}</div>
             </div>
           </div>
           {#if pac}
             <div class="pac">
               <b>Paciente:</b> {pac.nombre} {pac.apellido || ''}
-              {#if pac.direccion}<div class="mut">📍 {pac.direccion}</div>{/if}
+              {#if pac.direccion}<div class="mut"> {pac.direccion}</div>{/if}
             </div>
           {:else}
             <div class="mut">Sin paciente asociado</div>
@@ -219,28 +219,28 @@
           <div class="mut">Respuesta: {e.estado === 'confirmada' ? tiempoRespuesta(e) : 'pendiente'}</div>
 
           {#if e.empleado_confirmo_at}
-            <div class="mut">✔ Empleado confirmó recepción del aviso: {fmtFecha(e.empleado_confirmo_at)}</div>
+            <div class="mut"> Empleado confirmó recepción del aviso: {fmtFecha(e.empleado_confirmo_at)}</div>
           {:else if ['confirmada','en_gestion'].includes(e.estado)}
-            <div class="mut">⏳ Esperando que el empleado confirme recepción del aviso</div>
+            <div class="mut"> Esperando que el empleado confirme recepción del aviso</div>
           {/if}
           <div class="acciones">
             {#if esAdmin && e.estado === 'activa'}
-              <button class="btn-confirmar" onclick={() => confirmar(e)}>✔ YA ESTOY ENTERADO DE LA EMERGENCIA</button>
+              <button class="btn-confirmar" onclick={() => confirmar(e)}> YA ESTOY ENTERADO DE LA EMERGENCIA</button>
             {/if}
             {#if esAdmin && e.estado === 'confirmada'}
-              <button class="btn-gestion" onclick={() => gestionar(e)}>🛠 Estoy gestionando la ayuda</button>
+              <button class="btn-gestion" onclick={() => gestionar(e)}> Estoy gestionando la ayuda</button>
             {/if}
             {#if esAdmin && ['activa','confirmada','en_gestion'].includes(e.estado)}
-              <button class="btn-atender" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}>📝 Registrar atención</button>
+              <button class="btn-atender" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}> Registrar atención</button>
             {/if}
             {#if esAdmin && ['confirmada','en_gestion','atendida'].includes(e.estado)}
-              <button class="btn-cerrar" onclick={() => cerrar(e)}>🔒 Cerrar incidente</button>
+              <button class="btn-cerrar" onclick={() => cerrar(e)}> Cerrar incidente</button>
             {/if}
             {#if ['activa','confirmada','en_gestion','atendida'].includes(e.estado)}
-              <a class="btn-chat" href="/chat-emergencia?e={e.id}">💬 Chat emergencia</a>
-              <button class="btn-cancelar" onclick={() => cancelar(e)}>✖ Falsa alarma</button>
+              <a class="btn-chat" href="/chat-emergencia?e={e.id}"> Chat emergencia</a>
+              <button class="btn-cancelar" onclick={() => cancelar(e)}> Falsa alarma</button>
             {/if}
-            <button class="btn-eventos" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}>📋 Bitácora</button>
+            <button class="btn-eventos" onclick={() => (eventoAbierto = eventoAbierto === e.id ? null : e.id)}> Bitácora</button>
           </div>
 
           {#if eventoAbierto === e.id}
@@ -264,7 +264,7 @@
     </section>
   </div>
 
-  <footer class="nota911">⚠️ Este sistema es una herramienta de apoyo y <b>no sustituye la llamada al 911</b> ante peligro inmediato.</footer>
+  <footer class="nota911"> Este sistema es una herramienta de apoyo y <b>no sustituye la llamada al 911</b> ante peligro inmediato.</footer>
 </div>
 
 <style>

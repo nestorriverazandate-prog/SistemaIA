@@ -141,7 +141,7 @@
    <div class="cred-body">
     <img class="logo" src="${window.location.origin}/logo.png" alt="Agencia Gerontológica Integral"/>
     <div class="agencia">Agencia Gerontológica Integral</div>
-    ${foto ? `<img class="cred-foto" src="${foto}" alt=""/>` : '<div class="cred-foto vacio">👤</div>'}
+    ${foto ? `<img class="cred-foto" src="${foto}" alt=""/>` : '<div class="cred-foto vacio"></div>'}
     <div class="nombre">${t.nombre || '—'}</div>
     <div class="rol">${t.puesto || t.profesion || 'Personal'}${t.especialidad ? ' · ' + t.especialidad : ''}</div>
     <div class="datos">
@@ -341,7 +341,7 @@
  <div class="expediente-head">
  <h3>Expediente — {dirSel.nombre || dirSel.email}</h3>
  <div>
- <button class="mini" onclick={imprimirCredencial}>🪪 Credencial</button>
+ <button class="mini" onclick={imprimirCredencial}> Credencial</button>
  <button class="mini" onclick={() => window.print()}>Imprimir / PDF</button>
  <button class="mini ghost" onclick={() => { dirVerHistorial = !dirVerHistorial; }}>Historial</button>
  <button class="mini danger" onclick={() => eliminarTrabajador(dirSel)}>Eliminar</button>
@@ -355,7 +355,7 @@
  <label class="mini ghost foto-btn">{dirFoto ? 'Cambiar foto' : 'Subir foto'}
  <input type="file" accept="image/*" class="hidden" onchange={onDirFoto} />
  </label>
- <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
+ <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}> Tomar foto</button>
  {#if dirFoto}<button type="button" class="mini danger" onclick={quitarDirFoto}>Quitar</button>{/if}
  </div>
  <p class="muted small">Fotografía para credencial y expediente. JPG/PNG.</p>

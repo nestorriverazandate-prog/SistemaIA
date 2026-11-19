@@ -152,7 +152,7 @@
   const esConversacionAbierta = $derived(actual && actual !== 'comunicados');
   const tituloActual = $derived.by(() => {
     if (!actual) return '';
-    if (actual === 'comunicados') return '📢 Comunicados';
+    if (actual === 'comunicados') return ' Comunicados';
     const c = conversaciones.find((x) => x.partner === actual.partner);
     return nombreConv({ partner: actual.partner, perfil: c?.perfil || actual.perfil });
   });
@@ -199,16 +199,16 @@
     <aside class="lista" bind:this={listaEl}>
       <div class="lista-head">
         <div>
-          <h2>💬 Mensajería</h2>
+          <h2> Mensajería</h2>
           <p class="sub">{totalNoLeidos ? `${totalNoLeidos} sin leer` : 'Centro de comunicación'}</p>
         </div>
-        <a class="btn-home" href="/" title="Inicio">⌂</a>
+        <a class="btn-home" href="/" title="Inicio">Inicio</a>
       </div>
       <input class="buscador" placeholder="Buscar conversación…" bind:value={buscando} />
 
       {#if actual !== 'comunicados'}
         <button class="conv comunicados-item" class:sel={actual === 'comunicados'} onclick={() => abrir('comunicados')}>
-          <div class="avatar sys">📢</div>
+          <div class="avatar sys"></div>
           <div class="conv-info">
             <b>Comunicados</b>
             <span class="mut">{esAdmin ? 'Envío a grupos' : 'Avisos de la agencia'}</span>
@@ -219,11 +219,11 @@
       {#each CONVS_FILTRO as c}
         {@const p = c.perfil}
         <button class="conv" class:sel={actual?.partner === c.partner} class:archivada={c.estado?.archivada} onclick={() => abrir(c)}>
-          {#if fotoUrl(p)}<img class="avatar" src={fotoUrl(p)} alt="" />{:else}<div class="avatar">👤</div>{/if}
+          {#if fotoUrl(p)}<img class="avatar" src={fotoUrl(p)} alt="" />{:else}<div class="avatar"></div>{/if}
           <div class="conv-info">
             <div class="conv-top">
               <b>{nombreConv(c)}</b>
-              {#if c.estado?.importante}<span title="Importante">⭐</span>{/if}
+              {#if c.estado?.importante}<span title="Importante"></span>{/if}
             </div>
             <span class="mut">{rolLabel(p?.rol)}{p?.email ? ' · ' + p.email : ''}</span>
             {#if c.ultimo}<span class="preview">{c.ultimo.cuerpo?.slice(0, 40)}{c.ultimo.cuerpo?.length > 40 ? '…' : ''}</span>{/if}
@@ -262,22 +262,22 @@
           {#if esConversacionAbierta}
             {@const c = conversaciones.find((x) => x.partner === actual.partner)}
             {@const p = c?.perfil}
-            {#if fotoUrl(p)}<img class="foto" src={fotoUrl(p)} alt="" />{:else}<div class="foto avatar">👤</div>{/if}
+            {#if fotoUrl(p)}<img class="foto" src={fotoUrl(p)} alt="" />{:else}<div class="foto avatar"></div>{/if}
             <div class="chat-id">
               <b>{tituloActual}</b>
               <span class="mut2">{rolLabel(p?.rol)}{p?.telefono ? ' · ' + p.telefono : ''}</span>
             </div>
             <div class="chat-acc">
               {#if esAdmin}
-                <button class="acc" title={c?.estado?.importante ? 'Quitar importante' : 'Marcar importante'} onclick={() => toggle(actual.partner, 'importante')}>{c?.estado?.importante ? '⭐' : '☆'}</button>
-                <button class="acc" title={c?.estado?.archivada ? 'Desarchivar' : 'Archivar'} onclick={() => toggle(actual.partner, 'archivada')}>{c?.estado?.archivada ? '📤' : '📁'}</button>
+                <button class="acc" title={c?.estado?.importante ? 'Quitar importante' : 'Marcar importante'} onclick={() => toggle(actual.partner, 'importante')}>{c?.estado?.importante ? '' : ''}</button>
+                <button class="acc" title={c?.estado?.archivada ? 'Desarchivar' : 'Archivar'} onclick={() => toggle(actual.partner, 'archivada')}>{c?.estado?.archivada ? '' : ''}</button>
               {/if}
-              {#if p?.telefono}<a class="btn-call" href="tel:{p.telefono}">📞</a>{/if}
+              {#if p?.telefono}<a class="btn-call" href="tel:{p.telefono}">Llamar</a>{/if}
             </div>
           {:else}
-            <div class="chat-id"><b>📢 Comunicados de la agencia</b></div>
+            <div class="chat-id"><b> Comunicados de la agencia</b></div>
           {/if}
-          <a class="btn-home" href="/" title="Inicio">⌂ Inicio</a>
+          <a class="btn-home" href="/" title="Inicio"> Inicio</a>
         </header>
 
         <div class="mensajes" bind:this={chatEl}>
@@ -290,14 +290,14 @@
                   {#if m._url.match(/\.(png|jpe?g|gif|webp)/i)}
                     <a href={m._url} target="_blank"><img class="adj-img" src={m._url} alt="adjunto" /></a>
                   {:else}
-                    <a class="adj-file" href={m._url} target="_blank">📎 Archivo adjunto</a>
+                    <a class="adj-file" href={m._url} target="_blank"> Archivo adjunto</a>
                   {/if}
                 {/if}
                 {#if m.cuerpo && m.cuerpo !== '[archivo]'}<div class="texto">{m.cuerpo}</div>{/if}
                 <div class="hora">
                   {fmtFechaMsg(m.created_at)}
-                  {#if mio}<span class="ticks" class:leido={m.leido}>{m.leido ? '✓✓' : '✓'}</span>{/if}
-                  {#if !mio}<button class="reportar" title="Reportar" onclick={() => reportar(m)}>⚑</button>{/if}
+                  {#if mio}<span class="ticks" class:leido={m.leido}>{m.leido ? 'Leído' : 'Enviado'}</span>{/if}
+                  {#if !mio}<button class="reportar" title="Reportar" onclick={() => reportar(m)}>Reportar</button>{/if}
                 </div>
               </div>
             </div>
@@ -315,28 +315,28 @@
                 <option value="familiares">Familiares</option>
               </select>
               <input placeholder="Escribe un comunicado…" bind:value={textoComun} onkeydown={(e) => e.key === 'Enter' && enviarComunicado()} />
-              <button class="btn-enviar" onclick={enviarComunicado}>📢</button>
+              <button class="btn-enviar" onclick={enviarComunicado}>Enviar</button>
             </div>
           </div>
         {:else if actual !== 'comunicados' || !esAdmin}
           {#if adjunto}
             <div class="adj-preview">
-              📎 {adjuntoNombre}
-              <button onclick={() => { adjunto = null; adjuntoNombre = ''; }}>✕</button>
+               {adjuntoNombre}
+              <button onclick={() => { adjunto = null; adjuntoNombre = ''; }}>Quitar</button>
             </div>
           {/if}
           <div class="entrada">
             <input type="file" bind:this={fileInput} style="display:none" onchange={onFile} accept="image/*,.pdf,.doc,.docx,.txt" />
-            <button class="btn-adj" title="Adjuntar foto o archivo" onclick={() => fileInput?.click()}>📎</button>
+            <button class="btn-adj" title="Adjuntar foto o archivo" onclick={() => fileInput?.click()}>Adjuntar</button>
             <input placeholder={actual === 'comunicados' ? 'Los comunicados los envía el directivo' : 'Escribe un mensaje…'} bind:value={texto} disabled={actual === 'comunicados' && !esAdmin} onkeydown={(e) => e.key === 'Enter' && enviar()} />
-            <button class="btn-enviar" onclick={enviar} disabled={enviando}>➤</button>
+            <button class="btn-enviar" onclick={enviar} disabled={enviando}>Enviar</button>
           </div>
         {/if}
       </section>
     {:else}
       <section class="vacio">
         <div class="vacio-card">
-          <div class="vacio-icon">💬</div>
+          <div class="vacio-icon"></div>
           <h3>{esAdmin ? 'Centro de Mensajería' : 'Mensajes con el directivo'}</h3>
           <p class="mut">{esAdmin ? 'Selecciona una conversación de la lista o escribe a un usuario nuevo.' : 'Tu conversación con el directivo aparece aquí. También recibirás los comunicados de la agencia.'}</p>
           {#if totalNoLeidos}<p class="badge-nl big">{totalNoLeidos} sin leer</p>{/if}

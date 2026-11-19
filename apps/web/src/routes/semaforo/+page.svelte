@@ -119,7 +119,7 @@
      <td><strong>{i.paciente.nombre} {i.paciente.apellido}</strong><br/><small class="muted">{i.paciente.direccion || '—'}</small></td>
      <td>
       {#if i.alerta_abierta}
-       <span class="alerta-chip">⚠ {i.alerta_abierta.motivo} · {String(i.alerta_abierta.created_at).slice(0, 10)}</span>
+       <span class="alerta-chip"> {i.alerta_abierta.motivo} · {String(i.alerta_abierta.created_at).slice(0, 10)}</span>
       {/if}
       {#each i.motivos.slice(0, 3) as m}
        <div class="motivo {m.nivel}">• {m.texto}{#if m.fecha} <small>({String(m.fecha).slice(0, 10)})</small>{/if}</div>

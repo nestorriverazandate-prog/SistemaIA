@@ -47,7 +47,7 @@
   }
   // Servicios externos
   const gSer = mk('servicios');
-  const icono = (tipo) => L.divIcon({ className: 'obs-pin', html: `<div style="background:${tipo === 'hospital' ? '#b02a37' : tipo === 'centro_salud' ? '#1a7f4b' : tipo === 'residencia' ? '#7a3fa0' : '#135666'};color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">✚</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+  const icono = (tipo) => L.divIcon({ className: 'obs-pin', html: `<div style="background:${tipo === 'hospital' ? '#b02a37' : tipo === 'centro_salud' ? '#1a7f4b' : tipo === 'residencia' ? '#7a3fa0' : '#135666'};color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700"></div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
   for (const s of data.servicios.filter((x) => x.lat != null)) {
     L.marker([s.lat, s.lng], { icon: icono(s.tipo) })
       .bindPopup(`<b>${s.nombre}</b><br/>${s.tipo || ''}${s.zona ? ' · ' + s.zona : ''}<br/><span class="muted">${s.fuente || ''}</span>`)
@@ -311,7 +311,7 @@
 {#if selZona}
 <div class="overlay" role="presentation" onclick={() => selZona = null}>
  <div class="sheet" onclick={(e) => e.stopPropagation()}>
-  <div class="sheet-head"><h3>{selZona.zona}</h3><button class="mini ghost" onclick={() => selZona = null}>✕</button></div>
+  <div class="sheet-head"><h3>{selZona.zona}</h3><button class="mini ghost" onclick={() => selZona = null}>Cerrar</button></div>
   <table class="mini-tab">
    <tbody>
     <tr><td>Pacientes atendidos</td><td><b>{selZona.pacientes}</b></td></tr>

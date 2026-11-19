@@ -114,9 +114,9 @@
     </div>
    </div>
    <div class="exp-acciones">
-    <a class="mini link" href="/expediente?id={exp.paciente.id}&tab=valoracion">🩺 Valoración</a>
-    <a class="mini link" href="/expediente?id={exp.paciente.id}">📋 Expediente multidisciplinario</a>
-    <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}&tab=valoracion"> Valoración</a>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}"> Expediente multidisciplinario</a>
+    <button class="mini ghost" onclick={cerrarExpediente}> Cerrar</button>
    </div>
   </div>
   {#if expErr}<p class="error">{expErr}</p>{/if}

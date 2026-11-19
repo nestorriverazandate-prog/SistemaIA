@@ -1820,7 +1820,7 @@ async function revisarSemaforos() {
    }).select().single();
    if (alerta) {
     conAbierta.add(p.id);
-    await notifyAdmins('alerta', `🚦 Semáforo ${s.color.toUpperCase()}: ${p.nombre} ${p.apellido} — ${motivoPrincipal}`, null, { paciente_id: p.id, color: s.color, alerta_id: alerta.id });
+    await notifyAdmins('alerta', ` Semáforo ${s.color.toUpperCase()}: ${p.nombre} ${p.apellido} — ${motivoPrincipal}`, null, { paciente_id: p.id, color: s.color, alerta_id: alerta.id });
    }
   }
 }
@@ -3317,7 +3317,7 @@ app.post('/api/mensajes', requireUser, async (req, res) => {
    if (!['familiar', 'staff', 'cuidador'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Sin permiso' });
    const texto = String(req.body?.texto || '').trim().slice(0, 1000);
    if (!texto) return res.status(400).json({ error: 'Escribe un mensaje' });
-   await notifyAdmins('mensaje', `💬 Mensaje de ${req.user.perfil?.nombre || req.user.email}: ${texto}`, null, { de: req.user.email, nombre: req.user.perfil?.nombre || null, texto });
+   await notifyAdmins('mensaje', ` Mensaje de ${req.user.perfil?.nombre || req.user.email}: ${texto}`, null, { de: req.user.email, nombre: req.user.perfil?.nombre || null, texto });
    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error al enviar' }); }
 });
@@ -4421,7 +4421,7 @@ app.post('/api/emergencias', requireUser, async (req, res) => {
     for (const a of admins || []) {
       await supabase.from('notificaciones').insert({
         destinatario_id: a.id, tipo: 'emergencia',
-        mensaje: '🚨 BOTÓN DE PÁNICO — ' + (emp.nombre || req.user.email) + (paciente ? ' está con el paciente ' + paciente.nombre + ' ' + paciente.apellido : '') + '. Revisa el Centro de Emergencias.',
+        mensaje: ' BOTÓN DE PÁNICO — ' + (emp.nombre || req.user.email) + (paciente ? ' está con el paciente ' + paciente.nombre + ' ' + paciente.apellido : '') + '. Revisa el Centro de Emergencias.',
         datos: { emergencia_id: em.id, empleado_id: req.user.id }
       });
     }
@@ -4436,7 +4436,7 @@ app.post('/api/emergencias', requireUser, async (req, res) => {
         for (const a of admins2 || []) {
           await supabase.from('notificaciones').insert({
             destinatario_id: a.id, tipo: 'emergencia',
-            mensaje: '⚠️ EMERGENCIA SIN CONFIRMAR — ' + (emp.nombre || req.user.email) + ' activó pánico hace 30s sin confirmación. Responde de inmediato.',
+            mensaje: ' EMERGENCIA SIN CONFIRMAR — ' + (emp.nombre || req.user.email) + ' activó pánico hace 30s sin confirmación. Responde de inmediato.',
             datos: { emergencia_id: em.id, escalada: true }
           });
         }

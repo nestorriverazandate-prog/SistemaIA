@@ -16,7 +16,7 @@
  function iconoDomicilio() {
   return L.divIcon({
    className: 'marker-div',
-   html: '<div style="background:#135666;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">⌂</div>',
+   html: '<div style="background:#135666;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>',
    iconSize: [28, 28], iconAnchor: [14, 14]
   });
  }

@@ -212,7 +212,7 @@
   </div>
   <div class="controles2">
    {#if esAdmin}<button onclick={() => abrirForm()}>+ Nueva cita</button>{/if}
-   {#if vista === 'dia'}<button class="ghost" onclick={ordenarCercania}>🧭 Ordenar por cercanía</button>{/if}
+   {#if vista === 'dia'}<button class="ghost" onclick={ordenarCercania}> Ordenar por cercanía</button>{/if}
    <button class="ghost" onclick={cargar}>↻ Actualizar</button>
   </div>
   {#if error}<p class="error">{error}</p>{/if}
@@ -249,7 +249,7 @@
   </div>
   {#if conflict}
    <div class="conflictos">
-    <p class="error">⚠ Conflicto de horario detectado:</p>
+    <p class="error"> Conflicto de horario detectado:</p>
     <ul>{#each conflict as c}<li>{c.hora} — {c.paciente}</li>{/each}</ul>
     <button class="mini warn" onclick={() => crearVisita(true)}>Confirmar de todos modos</button>
    </div>
@@ -326,16 +326,16 @@
   <div class="sheet" onclick={(e) => e.stopPropagation()}>
    <div class="sheet-head">
     <h3>{nombreV(sel)}</h3>
-    <button class="mini ghost" onclick={() => sel = null}>✕</button>
+    <button class="mini ghost" onclick={() => sel = null}>Cerrar</button>
    </div>
    <p class="muted">{fmtFechaLarga(sel.fecha)}{sel.hora_programada ? ' · ' + sel.hora_programada : ''} · {sel.duracion_estimada_min || 60} min{sel.disciplina ? ' · ' + sel.disciplina : ''}</p>
    <p><strong>Profesional:</strong> {nombreT(sel)}</p>
    {#if sel.pacientes?.direccion}<p><strong>Domicilio:</strong> {sel.pacientes.direccion}{sel.pacientes.ciudad ? ', ' + sel.pacientes.ciudad : ''}</p>{/if}
    <p><strong>Estado:</strong> <span class="estado estado-{sel.estado}">{sel.estado}</span></p>
    <div class="sheet-btns">
-    <button class="mini" onclick={() => comoLlegar(sel)}>🧭 Cómo llegar</button>
+    <button class="mini" onclick={() => comoLlegar(sel)}> Cómo llegar</button>
     {#if esEmpleado && sel.trabajador_id === perfil.id && sel.estado === 'programada'}
-     <button class="mini ok-btn" onclick={() => actualizar({ estado: 'finalizada' })}>✓ Confirmar realizada</button>
+     <button class="mini ok-btn" onclick={() => actualizar({ estado: 'finalizada' })}> Confirmar realizada</button>
     {/if}
     {#if esAdmin}
      <button class="mini ghost" onclick={() => { const f = prompt('Nueva fecha (AAAA-MM-DD):', sel.fecha); if (f) actualizar({ fecha: f }); }}>Reprogramar fecha</button>
@@ -367,7 +367,7 @@
      </div>
     {/each}
    {:else if sel.estado === 'finalizada' || sel.estado === 'en_curso'}
-    <p class="muted small">⚠ Visita finalizada sin nota de evolución registrada.</p>
+    <p class="muted small"> Visita finalizada sin nota de evolución registrada.</p>
    {/if}
   </div>
  </div>

@@ -38,9 +38,9 @@
 
   const ACTIVAS = ['activa', 'confirmada', 'en_gestion', 'atendida'];
   const ESTADOS = {
-    activa: '🚨 ALERTA ACTIVADA', confirmada: '✔ DIRECTIVO ENTERADO',
-    en_gestion: '🛠 AYUDA EN GESTIÓN', atendida: '🤝 EMERGENCIA ATENDIDA',
-    cerrada: '🔒 CERRADA', cancelada: 'CANCELADA'
+    activa: ' ALERTA ACTIVADA', confirmada: ' DIRECTIVO ENTERADO',
+    en_gestion: ' AYUDA EN GESTIÓN', atendida: ' EMERGENCIA ATENDIDA',
+    cerrada: ' CERRADA', cancelada: 'CANCELADA'
   };
 
   function fmtHora(iso) {
@@ -157,14 +157,14 @@
     <!-- Lista de emergencias activas -->
     <aside class="lista" bind:this={listaEl}>
       <div class="lista-top">
-        <h2>🚨 CHAT DE EMERGENCIA</h2>
-        <a class="btn-home2" href="/" title="Volver al inicio">⌂ Inicio</a>
+        <h2> CHAT DE EMERGENCIA</h2>
+        <a class="btn-home2" href="/" title="Volver al inicio"> Inicio</a>
       </div>
       <p class="sub">Conversaciones activas ({emergencias.length})</p>
       {#each emergencias as e}
         <button class="item" class:sel={actual?.id === e.id} onclick={() => abrir(e)}>
           <div class="item-head">
-            {#if fotoUrl(e.perfiles)}<img src={fotoUrl(e.perfiles)} alt="" />{:else}<div class="avatar">👤</div>{/if}
+            {#if fotoUrl(e.perfiles)}<img src={fotoUrl(e.perfiles)} alt="" />{:else}<div class="avatar"></div>{/if}
             <div>
               <b>{e.perfiles?.nombre || 'Empleado'}</b>
               <div class="mut">{e.pacientes ? e.pacientes.nombre + ' ' + (e.pacientes.apellido || '') : 'Sin paciente'}</div>
@@ -185,7 +185,7 @@
         <header class="chat-header">
           <button class="volver" onclick={volverALista}>←</button>
           <div class="chat-id">
-            {#if fotoUrl(emp)}<img class="foto" src={fotoUrl(emp)} alt="" />{:else}<div class="foto avatar">👤</div>{/if}
+            {#if fotoUrl(emp)}<img class="foto" src={fotoUrl(emp)} alt="" />{:else}<div class="foto avatar"></div>{/if}
             <div>
               <b>{emp?.nombre || 'Empleado'}</b>
               <div class="mut">
@@ -195,12 +195,12 @@
             </div>
           </div>
           <div class="chat-meta">
-            <a class="btn-home" href="/" title="Volver al inicio">⌂ Inicio</a>
+            <a class="btn-home" href="/" title="Volver al inicio"> Inicio</a>
             <span class="estado {actual.estado}">{ESTADOS[actual.estado] || actual.estado}</span>
             {#if esAdmin && emp?.telefono}
-              <a class="btn-call" href="tel:{emp.telefono}">📞 Llamar</a>
+              <a class="btn-call" href="tel:{emp.telefono}"> Llamar</a>
             {:else}
-              <a class="btn-call" href="tel:911">📞 911</a>
+              <a class="btn-call" href="tel:911"> 911</a>
             {/if}
           </div>
         </header>
@@ -214,7 +214,7 @@
                 <div class="hora">
                   {fmtFecha(m.created_at)}
                   {#if esMio(m)}
-                    <span class="ticks" class:leido={m.leido}>{m.leido ? '✓✓' : m.entregado ? '✓✓' : '✓'}</span>
+                    <span class="ticks" class:leido={m.leido}>{m.leido ? 'Leído' : m.entregado ? 'Entregado' : 'Enviado'}</span>
                   {/if}
                 </div>
               </div>
@@ -240,9 +240,9 @@
             oninput={alEscribir}
             onkeydown={(ev) => ev.key === 'Enter' && enviar()}
           />
-          <button class="btn-enviar" onclick={() => enviar()}>➤</button>
+          <button class="btn-enviar" onclick={() => enviar()}>Enviar</button>
         </div>
-        <p class="nota911">⚠️ En peligro inmediato llama al 911. Este chat no sustituye la emergencia nacional.</p>
+        <p class="nota911"> En peligro inmediato llama al 911. Este chat no sustituye la emergencia nacional.</p>
       </section>
     {/if}
   </div>

@@ -175,15 +175,15 @@
       <div class="tl-meta">
        <strong>{fmtFecha(it.fecha)}{it.hora ? ' · ' + it.hora : ''}</strong>
        <span class="muted"> · {it.prof} · {it.disc}{it.n.sesion ? ' · ' + it.n.sesion : ''}</span>
-       {#if it.n.cerrada}<span class="cerrada-badge">🔒 Cerrada{it.n.cerrada_por ? ' por ' + it.n.cerrada_por : ''}</span>{/if}
-       {#if it.n.revisado}<span class="revisado-badge">✓ Revisado</span>{/if}
+       {#if it.n.cerrada}<span class="cerrada-badge"> Cerrada{it.n.cerrada_por ? ' por ' + it.n.cerrada_por : ''}</span>{/if}
+       {#if it.n.revisado}<span class="revisado-badge"> Revisado</span>{/if}
       </div>
       {#if it.n.objetivos}<p><strong>Objetivos de la disciplina:</strong> {it.n.objetivos}</p>{/if}
       {#if it.n.actividades}<p><strong>Actividades:</strong> {it.n.actividades}</p>{/if}
       {#if it.n.evolucion}<p><strong>Evolución:</strong> {it.n.evolucion}</p>{/if}
       {#if it.n.observaciones}<p><strong>Observaciones:</strong> {it.n.observaciones}</p>{/if}
       {#if it.n.recomendaciones}<p><strong>Recomendaciones para el equipo:</strong> {it.n.recomendaciones}</p>{/if}
-      {#if it.n.incidencias}<p class="incidencia"><strong>⚠ Incidencia:</strong> {it.n.incidencias}</p>{/if}
+      {#if it.n.incidencias}<p class="incidencia"><strong> Incidencia:</strong> {it.n.incidencias}</p>{/if}
       {#if it.n.correccion}<p class="correccion"><strong>Corrección solicitada:</strong> {it.n.correccion}</p>{/if}
       {#if it.n.comentario_admin}<p class="comentario"><strong>Comentario del directivo:</strong> {it.n.comentario_admin}</p>{/if}
       {#if (evPorNota.get(it.n.id) || []).length}

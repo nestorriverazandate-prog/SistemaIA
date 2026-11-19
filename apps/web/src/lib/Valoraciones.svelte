@@ -253,7 +253,7 @@
 
  <div class="val-head">
   <h4>Valoración gerontológica y funcional</h4>
-  <button class="mini ghost" onclick={reportePDF} disabled={!valoraciones.length}>🖨️ Reporte PDF</button>
+  <button class="mini ghost" onclick={reportePDF} disabled={!valoraciones.length}> Reporte PDF</button>
  </div>
  <p class="muted small">Escalas validadas: Barthel, Lawton y Brody, Tinetti, Yesavage (GDS-15) y Mini-Mental. Los resultados los registra y revisa un profesional competentes; el sistema no diagnostica.</p>
 
@@ -309,7 +309,7 @@
   <div class="esc-form">
    <div class="esc-form-head">
     <strong>{escActiva.nombre}</strong>
-    <button class="mini ghost" onclick={() => formEscala = ''}>✕ Cancelar</button>
+    <button class="mini ghost" onclick={() => formEscala = ''}> Cancelar</button>
    </div>
    <p class="muted small">{escActiva.desc}</p>
    <div class="form-row">

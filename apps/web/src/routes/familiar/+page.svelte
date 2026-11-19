@@ -137,7 +137,7 @@
   <div class="cred"><div class="cred-top"></div><div class="cred-body">
    <img class="logo" src="${window.location.origin}/logo.png"/>
    <div class="agencia">Agencia Gerontológica Integral</div>
-   <div class="cred-foto">👤</div>
+   <div class="cred-foto"></div>
    <div class="nombre">${nombre}</div>
    <div class="rol">Familiar responsable</div>
    <div class="datos">
@@ -184,8 +184,8 @@
  </a>
  <div>
   <span class="badge">{perfil.email} · Familiar</span>
-  <a class="mini ghost" href="/mensajeria" style="text-decoration:none">💬 Mensajes</a>
-  <button class="mini ghost" onclick={imprimirCredencial}>🪪 Credencial</button>
+  <a class="mini ghost" href="/mensajeria" style="text-decoration:none"> Mensajes</a>
+  <button class="mini ghost" onclick={imprimirCredencial}> Credencial</button>
   <button class="ghost" onclick={logout}>Salir</button>
  </div>
 </header>
@@ -295,12 +295,12 @@
      <p class="muted">{sel.paciente.cedula ? sel.paciente.cedula + ' años · ' : ''}{sel.paciente.direccion || '—'} · {sel.paciente.telefono || '—'}</p>
     </div>
    </div>
-   <button class="mini ghost" onclick={() => sel = null}>✕ Cerrar</button>
+   <button class="mini ghost" onclick={() => sel = null}> Cerrar</button>
   </div>
 
   <div class="acciones">
    <button class="mini" onclick={() => imprimirReporte(sel)}>Descargar reporte mensual (PDF)</button>
-   <button class="mini" onclick={imprimirCredencial}>🪪 Credencial familiar</button>
+   <button class="mini" onclick={imprimirCredencial}> Credencial familiar</button>
   </div>
 
   <h4>Paquete contratado</h4>

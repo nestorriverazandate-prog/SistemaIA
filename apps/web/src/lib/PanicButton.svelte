@@ -130,11 +130,11 @@
   }
 
   const ETIQUETAS = {
-    activa: '🚨 ALERTA ACTIVADA — esperando respuesta del directivo',
-    confirmada: '✔ DIRECTIVO ENTERADO — está gestionando la ayuda',
-    en_gestion: '🛠 AYUDA EN GESTIÓN',
-    atendida: '🤝 EMERGENCIA ATENDIDA',
-    cerrada: '🔒 EMERGENCIA CERRADA'
+    activa: ' ALERTA ACTIVADA — esperando respuesta del directivo',
+    confirmada: ' DIRECTIVO ENTERADO — está gestionando la ayuda',
+    en_gestion: ' AYUDA EN GESTIÓN',
+    atendida: ' EMERGENCIA ATENDIDA',
+    cerrada: ' EMERGENCIA CERRADA'
   };
 
   onMount(async () => {
@@ -149,7 +149,7 @@
 <div class="panic-fab">
   {#if fase === 'idle' || fase === 'error'}
     <button class="btn-panic" onclick={() => { fase = 'confirmar'; error = ''; }}>
-      🚨 BOTÓN DE PÁNICO
+       BOTÓN DE PÁNICO
     </button>
     {#if fase === 'error'}<span class="err">{error}</span>{/if}
   {:else if fase === 'confirmar'}
@@ -167,33 +167,33 @@
     <div class="panel enviando">Enviando alerta…</div>
   {:else if fase === 'activa' && minimizado}
     <button class="btn-min" onclick={() => (minimizado = false)} title="Tocar para ver el estado">
-      {#if estadoEmergencia === 'en_gestion'}🛠{:else if estadoEmergencia === 'atendida'}🤝{:else}✔{/if}
+      {#if estadoEmergencia === 'en_gestion'}{:else if estadoEmergencia === 'atendida'}{:else}{/if}
       EMERGENCIA ATENDIDA
     </button>
     {#if emergencia?.id}
-      <a class="btn-min-chat" href="/chat-emergencia?e={emergencia.id}">💬 Chat</a>
+      <a class="btn-min-chat" href="/chat-emergencia?e={emergencia.id}"> Chat</a>
     {/if}
   {:else if fase === 'activa'}
     <div class="panel activa">
-      <strong>🚨 EMERGENCIA ACTIVA</strong>
-      <p class="sub estado-linea">{ETIQUETAS[estadoEmergencia] || '🚨 ALERTA ACTIVADA'}</p>
+      <strong> EMERGENCIA ACTIVA</strong>
+      <p class="sub estado-linea">{ETIQUETAS[estadoEmergencia] || ' ALERTA ACTIVADA'}</p>
       {#if ['confirmada','en_gestion'].includes(estadoEmergencia) && !empleadoConfirmo}
         <div class="aviso-enterado">
           <p><b>TU ALERTA DE EMERGENCIA HA SIDO RECIBIDA.</b></p>
           <p>El directivo ya está enterado de tu situación y está gestionando la ayuda correspondiente.</p>
           <p>Mantén la calma, busca un lugar seguro si es posible y permanece atento a las indicaciones y comunicaciones del directivo.</p>
           <p><b>NO ESTÁS SOLO. ESTAMOS ATENDIENDO TU EMERGENCIA.</b></p>
-          <button class="btn-rojo" onclick={confirmarRecepcion}>✔ CONFIRMAR QUE RECIBÍ EL AVISO</button>
+          <button class="btn-rojo" onclick={confirmarRecepcion}> CONFIRMAR QUE RECIBÍ EL AVISO</button>
         </div>
       {:else if empleadoConfirmo}
-        <p class="sub">✔ Confirmaste recepción del aviso del directivo.</p>
+        <p class="sub"> Confirmaste recepción del aviso del directivo.</p>
       {/if}
       {#if paciente}<p class="sub">Paciente: <b>{paciente.nombre} {paciente.apellido || ''}</b></p>{/if}
       <div class="acciones">
         <a class="btn-llamar" href="tel:911">Llamar 911</a>
-        {#if emergencia?.id}<a class="btn-chatlink" href="/chat-emergencia?e={emergencia.id}">💬 Chat de emergencia</a>{/if}
+        {#if emergencia?.id}<a class="btn-chatlink" href="/chat-emergencia?e={emergencia.id}"> Chat de emergencia</a>{/if}
         {#if ['confirmada','en_gestion','atendida'].includes(estadoEmergencia)}
-          <button class="btn-gris" onclick={() => (minimizado = true)}>➖ Minimizar</button>
+          <button class="btn-gris" onclick={() => (minimizado = true)}> Minimizar</button>
         {/if}
         <input class="motivo" placeholder="Motivo (si es falsa alarma)" bind:value={motivo} />
         <button class="btn-gris" onclick={cancelar}>Cancelar emergencia</button>

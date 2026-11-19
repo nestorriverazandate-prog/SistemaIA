@@ -42,19 +42,19 @@
   let comp = $state({ empleado_id: '', competencia: '', dimension: 'conocimientos', nivel: 3, notas: '' });
 
   const AREAS = {
-    gerontologia: { nombre: 'Gerontología y envejecimiento', icono: '🌱', desc: 'Ciencia del envejecimiento, valoración integral y atención centrada en la persona' },
-    cuidados: { nombre: 'Cuidados básicos e integrales', icono: '🤝', desc: 'Higiene, movilización, alimentación y cuidado de la vida diaria' },
-    enfermedades: { nombre: 'Enfermedades y patologías geriátricas', icono: '🩺', desc: 'Manejo de condiciones crónicas y síndromes del adulto mayor' },
-    fisioterapia: { nombre: 'Fisioterapia y rehabilitación', icono: '🏃', desc: 'Ejercicio terapéutico, marcha, equilibrio y funcionalidad' },
-    salud_mental: { nombre: 'Salud mental y estimulación', icono: '🧠', desc: 'Bienestar emocional, cognición y acompañamiento' },
-    nutricion: { nombre: 'Nutrición y alimentación geriátrica', icono: '🍎', desc: 'Requerimientos, evaluación y seguridad alimentaria' },
-    enfermeria: { nombre: 'Enfermería y atención clínica', icono: '💉', desc: 'Valoración, vigilancia, medicamentos y cuidados clínicos' },
-    emergencias: { nombre: 'Primeros auxilios y emergencias', icono: '🚨', desc: 'RCP, DEA, reconocimiento de urgencias y activación' },
-    paliativos: { nombre: 'Cuidados paliativos', icono: '🕊️', desc: 'Confort, dignidad y acompañamiento al final de la vida' },
-    etica: { nombre: 'Ética y trato humanizado', icono: '⚖️', desc: 'Derechos, confidencialidad y prevención del maltrato' },
-    cuidador: { nombre: 'Desarrollo del cuidador', icono: '💪', desc: 'Perfil profesional, autocuidado y habilidades del cuidador' },
-    administracion: { nombre: 'Administración y gestión', icono: '📋', desc: 'Gestión de servicios, calidad, riesgos y expedientes' },
-    talleres: { nombre: 'Talleres prácticos', icono: '🛠️', desc: 'Simulación presencial: movilización, RCP, cognición y caídas' }
+    gerontologia: { nombre: 'Gerontología y envejecimiento', icono: '', desc: 'Ciencia del envejecimiento, valoración integral y atención centrada en la persona' },
+    cuidados: { nombre: 'Cuidados básicos e integrales', icono: '', desc: 'Higiene, movilización, alimentación y cuidado de la vida diaria' },
+    enfermedades: { nombre: 'Enfermedades y patologías geriátricas', icono: '', desc: 'Manejo de condiciones crónicas y síndromes del adulto mayor' },
+    fisioterapia: { nombre: 'Fisioterapia y rehabilitación', icono: '', desc: 'Ejercicio terapéutico, marcha, equilibrio y funcionalidad' },
+    salud_mental: { nombre: 'Salud mental y estimulación', icono: '', desc: 'Bienestar emocional, cognición y acompañamiento' },
+    nutricion: { nombre: 'Nutrición y alimentación geriátrica', icono: '', desc: 'Requerimientos, evaluación y seguridad alimentaria' },
+    enfermeria: { nombre: 'Enfermería y atención clínica', icono: '', desc: 'Valoración, vigilancia, medicamentos y cuidados clínicos' },
+    emergencias: { nombre: 'Primeros auxilios y emergencias', icono: '', desc: 'RCP, DEA, reconocimiento de urgencias y activación' },
+    paliativos: { nombre: 'Cuidados paliativos', icono: '', desc: 'Confort, dignidad y acompañamiento al final de la vida' },
+    etica: { nombre: 'Ética y trato humanizado', icono: '', desc: 'Derechos, confidencialidad y prevención del maltrato' },
+    cuidador: { nombre: 'Desarrollo del cuidador', icono: '', desc: 'Perfil profesional, autocuidado y habilidades del cuidador' },
+    administracion: { nombre: 'Administración y gestión', icono: '', desc: 'Gestión de servicios, calidad, riesgos y expedientes' },
+    talleres: { nombre: 'Talleres prácticos', icono: '', desc: 'Simulación presencial: movilización, RCP, cognición y caídas' }
   };
   const NIVELES = { basico: 'Básico', intermedio: 'Intermedio', avanzado: 'Avanzado' };
   const ESTADOS = { asignado: 'Asignado', en_proceso: 'En proceso', aprobado: 'Aprobado', reprobado: 'Reprobado' };
@@ -115,7 +115,7 @@
     respuestas = {};
   }
 
-  const ESTADOS_UNIDAD = { no_iniciada: 'No iniciada', disponible: 'Disponible', en_curso: 'En curso', no_aprobada: 'No aprobada', aprobada: '✓ Aprobada', bloqueada: '🔒 Bloqueada' };
+  const ESTADOS_UNIDAD = { no_iniciada: 'No iniciada', disponible: 'Disponible', en_curso: 'En curso', no_aprobada: 'No aprobada', aprobada: ' Aprobada', bloqueada: ' Bloqueada' };
   function preguntasDeUnidad(uid) { return (cursoDetalle?.preguntas || []).filter(p => p.unidad_id === uid); }
   function preguntasFinales() {
     const fin = (cursoDetalle?.preguntas || []).filter(p => !p.unidad_id);
@@ -265,7 +265,7 @@
             <div class="cursos-grid">
               {#each mio.constancias as c (c.id)}
                 <div class="curso-card aprobado">
-                  <span class="badge-area">🏆 Constancia</span>
+                  <span class="badge-area"> Constancia</span>
                   <h3>{c.academia_cursos?.titulo || 'Curso'}</h3>
                   <p class="curso-meta">{c.horas || c.academia_cursos?.horas || 0}h · Calificación: {c.calificacion}%</p>
                   <p class="folio">Folio: {c.folio}</p>
@@ -280,7 +280,7 @@
           <div class="cursos-grid">
             {#each mio.protocolos as p (p.id)}
               <div class="curso-card {p.leido ? 'aprobado' : ''}">
-                <span class="badge-area">{p.leido ? '✓ Leído' : 'Pendiente'}</span>
+                <span class="badge-area">{p.leido ? ' Leído' : 'Pendiente'}</span>
                 <h3>{p.nombre}</h3>
                 <p class="curso-meta">v{p.version || '1.0'} · {p.responsable || 'Academia AGI'} · Actualizado {fmtFecha((p.updated_at || '').slice(0, 10))}</p>
                 {#if p.descripcion}<p class="desc">{p.descripcion}</p>{/if}
@@ -300,7 +300,7 @@
               <div class="curso-card">
                 <span class="badge-area">{ev.modalidad === 'presencial' ? 'Presencial' : 'Virtual'}</span>
                 <h3>{ev.nombre}</h3>
-                <p class="curso-meta">📅 {fmtFecha(ev.fecha)} {ev.hora ? '· ' + ev.hora : ''} {ev.duracion ? '· ' + ev.duracion : ''}</p>
+                <p class="curso-meta"> {fmtFecha(ev.fecha)} {ev.hora ? '· ' + ev.hora : ''} {ev.duracion ? '· ' + ev.duracion : ''}</p>
                 <p class="curso-meta">{ev.instructor ? 'Instructor: ' + ev.instructor : ''} {ev.ubicacion ? '· ' + ev.ubicacion : ''}</p>
                 {#if ev.descripcion}<p class="desc">{ev.descripcion}</p>{/if}
               </div>
@@ -319,7 +319,7 @@
                   <td><b>{ev.calificacion}%</b></td>
                   <td>{ev.intentos}</td>
                   <td>{new Date(ev.created_at).toLocaleDateString('es-MX')}</td>
-                  <td>{ev.calificacion >= 70 ? '✓ Aprobado' : '✗ Reprobado'}</td>
+                  <td>{ev.calificacion >= 70 ? ' Aprobado' : ' Reprobado'}</td>
                 </tr>
               {/each}
               {#if !mio.evaluaciones?.length}<tr><td colspan="5" class="vacio">Sin evaluaciones registradas</td></tr>{/if}
@@ -347,7 +347,7 @@
 
       {#if !areaSel}
         <div class="buscador-bar">
-          <input class="buscador" placeholder="🔍 Buscar curso por nombre, tema o especialidad..." bind:value={busqueda} />
+          <input class="buscador" placeholder=" Buscar curso por nombre, tema o especialidad..." bind:value={busqueda} />
           <select bind:value={filtroNivel}><option value="">Todos los niveles</option><option value="basico">Básico</option><option value="intermedio">Intermedio</option><option value="avanzado">Avanzado</option></select>
           <select bind:value={filtroModalidad}><option value="">Toda modalidad</option><option value="virtual">Virtual</option><option value="presencial">Presencial</option><option value="hibrido">Híbrido</option></select>
           <select bind:value={filtroOblig}><option value="">Obligatorios y opcionales</option><option value="oblig">Solo obligatorios</option><option value="opcional">Solo opcionales</option></select>
@@ -356,7 +356,7 @@
 
         {#if recomendados.length && !busqueda}
           <div class="card recomendados">
-            <h3>🎯 Recomendados para ti{perfil?.profesion ? ' — ' + perfil.profesion : ''}</h3>
+            <h3> Recomendados para ti{perfil?.profesion ? ' — ' + perfil.profesion : ''}</h3>
             <div class="cursos-grid">
               {#each recomendados as c (c.id)}
                 <div class="curso-card catalogo-card">
@@ -387,7 +387,7 @@
           <div class="categorias-grid">
             {#each catalogo.areas as area (area)}
               {@const cursosArea = catalogo.cursos.filter(c => c.area === area)}
-              {@const info = AREAS[area] || { nombre: area, icono: '📚', desc: '' }}
+              {@const info = AREAS[area] || { nombre: area, icono: '', desc: '' }}
               <button class="categoria-card" onclick={() => { areaSel = area; busqueda = ''; }}>
                 <div class="cat-icono">{info.icono}</div>
                 <h3>{info.nombre}</h3>
@@ -409,7 +409,7 @@
                 {#if curso.mi_estado}<span class="estado {curso.mi_estado}">{ESTADOS[curso.mi_estado]}</span>{/if}
               </div>
               <h3>{curso.titulo}</h3>
-              <p class="curso-meta">{curso.horas}h · {curso.modalidad === 'presencial' ? '📍 Presencial' : curso.modalidad === 'hibrido' ? '🔀 Híbrido' : '💻 Virtual'} · {curso.instructor || 'Academia AGI'}</p>
+              <p class="curso-meta">{curso.horas}h · {curso.modalidad === 'presencial' ? ' Presencial' : curso.modalidad === 'hibrido' ? ' Híbrido' : ' Virtual'} · {curso.instructor || 'Academia AGI'}</p>
               {#if curso.descripcion}<p class="desc">{curso.descripcion}</p>{/if}
               <div class="btns">
                 <button class="btn-mini" onclick={() => abrirCurso(curso)}>Ver curso</button>
@@ -627,10 +627,10 @@
           {:else}
             <div class="modal-head">
               <h2>{cursoDetalle.curso.titulo}</h2>
-              <button class="btn-sec" onclick={cerrarDetalle}>✕</button>
+              <button class="btn-sec" onclick={cerrarDetalle}>Cerrar</button>
             </div>
             <p class="curso-meta">{areaNombre(cursoDetalle.curso.area)} · {NIVELES[cursoDetalle.curso.nivel]} · {cursoDetalle.curso.horas}h · {cursoDetalle.curso.obligatorio ? 'OBLIGATORIO' : 'Complementario'} · Instructor: {cursoDetalle.curso.instructor || 'Academia AGI'}</p>
-            <p class="curso-meta">{cursoDetalle.curso.modalidad === 'presencial' ? '📍 Presencial' : cursoDetalle.curso.modalidad === 'hibrido' ? '🔀 Híbrido' : '💻 Virtual'} · {cursoDetalle.curso.etiqueta ? (ETIQUETAS[cursoDetalle.curso.etiqueta] || cursoDetalle.curso.etiqueta) : ''} · Vigencia del contenido: {cursoDetalle.curso.vigencia_anios || 2} años</p>
+            <p class="curso-meta">{cursoDetalle.curso.modalidad === 'presencial' ? ' Presencial' : cursoDetalle.curso.modalidad === 'hibrido' ? ' Híbrido' : ' Virtual'} · {cursoDetalle.curso.etiqueta ? (ETIQUETAS[cursoDetalle.curso.etiqueta] || cursoDetalle.curso.etiqueta) : ''} · Vigencia del contenido: {cursoDetalle.curso.vigencia_anios || 2} años</p>
             {#if cursoDetalle.curso.descripcion}<p>{cursoDetalle.curso.descripcion}</p>{/if}
             {#if cursoDetalle.curso.justificacion}<div class="ficha-item"><b>Justificación:</b> {cursoDetalle.curso.justificacion}</div>{/if}
             {#if cursoDetalle.curso.objetivos}<div class="ficha-item"><b>Objetivos:</b> {cursoDetalle.curso.objetivos}</div>{/if}
@@ -652,7 +652,7 @@
             {/if}
 
             {#if cursoDetalle.curso.material_url}
-              <a class="btn-mini" href={cursoDetalle.curso.material_url} target="_blank">📄 {cursoDetalle.curso.material_nombre || 'Material de estudio'}</a>
+              <a class="btn-mini" href={cursoDetalle.curso.material_url} target="_blank"> {cursoDetalle.curso.material_nombre || 'Material de estudio'}</a>
             {/if}
 
             {#if prog?.unidades?.length}
@@ -669,7 +669,7 @@
                     {#if u.estado === 'disponible' || u.estado === 'no_aprobada'}
                       <button class="btn-mini" onclick={() => iniciarExamenUnidad(u)}>Examen de la unidad ({preguntasDeUnidad(u.id).length} preg.)</button>
                     {/if}
-                    {#if u.estado === 'bloqueada'}<span class="desc">🔒 Aprueba la unidad anterior para desbloquear</span>{/if}
+                    {#if u.estado === 'bloqueada'}<span class="desc"> Aprueba la unidad anterior para desbloquear</span>{/if}
                     {#if u.mejor_calificacion != null}<span class="calif">Mejor: {u.mejor_calificacion}% · {u.intentos}/3 intentos</span>{/if}
                   </div>
                 </div>
@@ -678,7 +678,7 @@
               {#each cursoDetalle.unidades as u, i (u.id)}
                 {@const hecha = unidadesHechas.has(u.id)}
                 <div class="unidad {hecha ? 'hecha' : ''}">
-                  <div class="unidad-head"><span>Unidad {i + 1}: {u.titulo}</span>{#if hecha}<span class="check-ok">✓ Completada</span>{/if}</div>
+                  <div class="unidad-head"><span>Unidad {i + 1}: {u.titulo}</span>{#if hecha}<span class="check-ok"> Completada</span>{/if}</div>
                   {#if u.contenido}<p class="desc">{u.contenido}</p>{/if}
                 </div>
               {/each}
@@ -686,12 +686,12 @@
 
             {#if prog?.todas_aprobadas}
               <div class="card" style="border-left:4px solid oklch(0.66 0.055 145)">
-                <h4>🎓 Examen final integrador</h4>
+                <h4> Examen final integrador</h4>
                 <p class="desc">Has aprobado todas las unidades. Presenta el examen final ({preguntasFinales().length} preguntas) para concluir el curso.</p>
                 {#if cursoDetalle.inscripcion?.estado !== 'aprobado'}
                   <button class="btn-ok" onclick={() => { examenFinal = true; respuestas = {}; }}>Presentar examen final</button>
                 {:else}
-                  <div class="msg-ok">✓ Curso concluido y aprobado</div>
+                  <div class="msg-ok"> Curso concluido y aprobado</div>
                 {/if}
               </div>
             {/if}
@@ -705,7 +705,7 @@
                 {#if !cursoDetalle.inscripcion}
                   <button class="btn-ok" onclick={() => inscribir(cursoDetalle.curso.id)}>Inscribirme para evaluar</button>
                 {:else if cursoDetalle.inscripcion.estado === 'aprobado'}
-                  <div class="msg-ok">✓ Curso aprobado{cursoDetalle.inscripcion.calificacion ? ' con ' + cursoDetalle.inscripcion.calificacion + '%' : ''}</div>
+                  <div class="msg-ok"> Curso aprobado{cursoDetalle.inscripcion.calificacion ? ' con ' + cursoDetalle.inscripcion.calificacion + '%' : ''}</div>
                 {:else if (cursoDetalle.inscripcion.intentos || 0) >= cursoDetalle.curso.max_intentos}
                   <div class="msg-error">Sin intentos restantes. Contacta al directivo.</div>
                 {:else}
@@ -716,19 +716,19 @@
 
             {#if resultado}
               <div class="resultado {resultado.aprobado ? 'ok' : 'fail'}">
-                <h3>{resultado.aprobado ? '✓ Aprobado' : '✗ No aprobado'}</h3>
+                <h3>{resultado.aprobado ? ' Aprobado' : ' No aprobado'}</h3>
                 <p>Calificación: <b>{resultado.calificacion}%</b> · {resultado.correctas ?? ''} correctas / {resultado.total ?? ''} · Intentos: {resultado.intentos}/{resultado.max_intentos || 3}</p>
                 {#if resultado.detalle?.length}
                   <div class="retro">
                     {#each resultado.detalle as d}
                       <div class="retro-item {d.correcta ? 'bien' : 'mal'}">
-                        <b>{d.correcta ? '✓' : '✗'}</b> {d.pregunta}
+                        <b>{d.correcta ? '' : ''}</b> {d.pregunta}
                         {#if !d.correcta && d.respuesta_correcta}<br /><small>Respuesta correcta: {d.respuesta_correcta}{d.retroalimentacion ? ' — ' + d.retroalimentacion : ''}</small>{/if}
                       </div>
                     {/each}
                   </div>
                 {/if}
-                {#if !resultado.aprobado}<p class="desc">💡 Repasa la unidad correspondiente y vuelve a intentarlo. El directivo puede darte una oportunidad extra si la necesitas.</p>{/if}
+                {#if !resultado.aprobado}<p class="desc"> Repasa la unidad correspondiente y vuelve a intentarlo. El directivo puede darte una oportunidad extra si la necesitas.</p>{/if}
                 <button class="btn-mini" onclick={() => { resultado = null; if (prog) abrirCurso({ id: cursoDetalle.curso.id }); }}>Cerrar</button>
               </div>
             {/if}
@@ -805,7 +805,7 @@
 
             {#if esAdmin && cursoDetalle.curso}
               <details class="admin-curso-edit">
-                <summary>✏️ Gestionar unidades y preguntas (admin)</summary>
+                <summary> Gestionar unidades y preguntas (admin)</summary>
                 <h4>Nueva unidad</h4>
                 <input placeholder="Título unidad" bind:value={nuevaUnidad.titulo} />
                 <textarea placeholder="Contenido" bind:value={nuevaUnidad.contenido} rows="2"></textarea>

@@ -224,7 +224,7 @@
  <button onclick={guardarRevision}>Guardar observaciones</button>
  <button class="ghost" onclick={toggleRevisado}>{sel.revisado ? 'Marcar como pendiente' : 'Marcar como revisado'}</button>
  </div>
- {#if sel.revisado}<p class="ok small">✓ Revisado{sel.revisado_por ? ` por ${sel.revisado_por}` : ''}{sel.revisado_at ? ` el ${fmt(sel.revisado_at)}` : ''}</p>{/if}
+ {#if sel.revisado}<p class="ok small"> Revisado{sel.revisado_por ? ` por ${sel.revisado_por}` : ''}{sel.revisado_at ? ` el ${fmt(sel.revisado_at)}` : ''}</p>{/if}
  {#if sel.correccion}<p class="warn-txt small">Corrección solicitada: {sel.correccion}</p>{/if}
  {#if sel.comentario_admin}<p class="muted small">Comentario admin: {sel.comentario_admin}</p>{/if}
  </div>

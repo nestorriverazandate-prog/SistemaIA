@@ -404,7 +404,7 @@
     <img class="logo" src="${window.location.origin}/logo.png" alt="Agencia Gerontológica Integral"/>
     <div class="agencia">Agencia Gerontológica Integral</div>
     <div class="paciente-label">Credencial de paciente</div>
-    ${expFoto ? `<img class="cred-foto" src="${expFoto}" alt=""/>` : '<div class="cred-foto vacio">👤</div>'}
+    ${expFoto ? `<img class="cred-foto" src="${expFoto}" alt=""/>` : '<div class="cred-foto vacio"></div>'}
     <div class="nombre">${p.nombre || ''} ${p.apellido || ''}</div>
     <div class="datos">
      <b>Nombre:</b> ${p.nombre || ''} ${p.apellido || ''}<br/>
@@ -580,9 +580,9 @@
     </div>
    </div>
    <div class="exp-acciones">
-    <a class="mini link" href="/expediente?id={exp.paciente.id}&tab=valoracion">🩺 Valoración</a>
-    <a class="mini link" href="/expediente?id={exp.paciente.id}">📋 Expediente multidisciplinario</a>
-    <button class="mini ghost" onclick={cerrarExpediente}>✕ Cerrar</button>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}&tab=valoracion"> Valoración</a>
+    <a class="mini link" href="/expediente?id={exp.paciente.id}"> Expediente multidisciplinario</a>
+    <button class="mini ghost" onclick={cerrarExpediente}> Cerrar</button>
    </div>
   </div>
 
@@ -597,7 +597,7 @@
      <label class="mini ghost foto-btn">{expFoto ? 'Cambiar foto' : 'Subir foto'}
       <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoExp} />
      </label>
-     <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
+     <button type="button" class="mini ghost foto-btn" onclick={() => camVisible = true}> Tomar foto</button>
      {#if expFoto}<button class="mini danger" onclick={quitarFotoExp}>Quitar</button>{/if}
     </div>
     <p class="muted small">JPG o PNG. Visible solo para personal autorizado.</p>
@@ -681,7 +681,7 @@
     {/if}
 
     <div class="exp-acciones">
-     <button class="mini" onclick={imprimirCredencialPaciente}>🪪 Credencial</button>
+     <button class="mini" onclick={imprimirCredencialPaciente}> Credencial</button>
      <button class="mini" onclick={imprimirPaquete}>Imprimir paquete contratado</button>
      <button class="mini" onclick={imprimirHistorial}>Imprimir historial de evolución</button>
     </div>
@@ -737,8 +737,8 @@
        {#if it.n.evolucion}<p><strong>Evolución:</strong> {it.n.evolucion}</p>{/if}
        {#if it.n.observaciones}<p><strong>Observaciones:</strong> {it.n.observaciones}</p>{/if}
        {#if it.n.recomendaciones}<p><strong>Recomendaciones:</strong> {it.n.recomendaciones}</p>{/if}
-       {#if it.n.incidencias}<p class="incidencia"><strong>⚠ Incidencia:</strong> {it.n.incidencias}</p>{/if}
-       {#if it.n.revisado}<span class="revisado-badge">✓ Revisado{it.n.revisado_por ? ' por ' + it.n.revisado_por : ''}</span>{/if}
+       {#if it.n.incidencias}<p class="incidencia"><strong> Incidencia:</strong> {it.n.incidencias}</p>{/if}
+       {#if it.n.revisado}<span class="revisado-badge"> Revisado{it.n.revisado_por ? ' por ' + it.n.revisado_por : ''}</span>{/if}
        {#if (evPorNotaTl.get(it.n.id) || []).length}
         <div class="tl-evs">
          {#each evPorNotaTl.get(it.n.id) as e (e.id)}

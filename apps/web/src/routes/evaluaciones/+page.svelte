@@ -388,7 +388,7 @@
    {#if !ev.revisada}
     <button class="mini" onclick={() => confirmarRevision(ev)}>Confirmar que revisé esta evaluación</button>
    {:else}
-    <p class="muted small">✓ Revisada el {new Date(ev.revisada_at).toLocaleDateString('es-EC')}</p>
+    <p class="muted small"> Revisada el {new Date(ev.revisada_at).toLocaleDateString('es-EC')}</p>
    {/if}
   </section>
  {:else}

@@ -506,8 +506,8 @@
  </div>
  </div>
  <div>
- <a class="ghost link" href="/emergencias">🚨 Emergencias</a>
- <a class="ghost link" href="/mensajeria">💬 Mensajes</a>
+ <a class="ghost link" href="/emergencias"> Emergencias</a>
+ <a class="ghost link" href="/mensajeria"> Mensajes</a>
  <a class="ghost link" href="/centro">Centro de Inteligencia</a>
  <a class="ghost link" href="/evaluaciones">Evaluaciones</a>
  <a class="ghost link" href="/encuestas">Encuestas</a>
@@ -579,7 +579,7 @@
  <label class="ghost foto-btn">{fotoPreview ? 'Cambiar foto' : 'Subir foto'}
  <input type="file" accept="image/jpeg,image/png" class="hidden" onchange={onFotoPaciente} />
  </label>
- <button type="button" class="ghost foto-btn" onclick={() => camVisible = true}>📷 Tomar foto</button>
+ <button type="button" class="ghost foto-btn" onclick={() => camVisible = true}> Tomar foto</button>
  {#if fotoPreview}<button type="button" class="ghost" onclick={quitarFotoPaciente}>Quitar</button>{/if}
  </div>
  </div>
@@ -652,7 +652,7 @@
  <a class="ghost link" href="/mapa-pacientes">Mapa</a>
  <a class="ghost link" href="/mis-pacientes">Mis pacientes</a>
  <a class="ghost link" href="/academia">Academia</a>
- <a class="ghost link" href="/mensajeria">💬 Mensajes</a>
+ <a class="ghost link" href="/mensajeria"> Mensajes</a>
  <a class="ghost link" href="/evaluaciones">Mis evaluaciones</a>
  <a class="ghost link" href="/agenda">Mi agenda</a>
  <a class="ghost link" href="/registrar">Registrar visita</a>
@@ -709,7 +709,6 @@
  {#if perfil?.rol === 'familiar'}
  <div class="accesos-grid">
   <a class="acceso-btn" href="/familiar">
-   <span class="acceso-icono">👨‍👩‍👧</span>
    <strong>Portal familiar</strong>
    <small>Seguimiento de mi familiar y reportes</small>
   </a>
@@ -717,12 +716,10 @@
  {:else if ['staff', 'cuidador'].includes(perfil?.rol)}
  <div class="accesos-grid">
   <a class="acceso-btn" href="/mapa-pacientes">
-   <span class="acceso-icono">🗺️</span>
    <strong>Mapa de pacientes</strong>
    <small>Domicilios asignados y cómo llegar</small>
   </a>
   <a class="acceso-btn" href="/mis-pacientes">
-   <span class="acceso-icono">👥</span>
    <strong>Mis pacientes</strong>
    <small>Expedientes y datos de atención</small>
   </a>
