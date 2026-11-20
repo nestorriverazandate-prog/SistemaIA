@@ -762,10 +762,10 @@
 .stats-mini .badge { background: oklch(0.66 0.055 145); color: oklch(0.27 0.035 225); }
 h3 { font-size: .95rem; margin: 1rem 0 .5rem; }
 .exp-form { display: flex; flex-direction: column; gap: .7rem; margin-top: .8rem; border-top: 1px solid oklch(0.93 0.025 140); padding-top: .8rem; }
-.grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.5rem; padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: minmax(400px, 1fr) 1.5fr; gap: 1.25rem; padding: 1.5rem 1.75rem; max-width: 1440px; margin: 0 auto; width: 100%; }
 .wide { grid-column: 1 / -1; }
- @media (max-width: 900px) {.grid { grid-template-columns: 1fr; } }
-.card { background: #fff; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+ @media (max-width: 1100px) {.grid { grid-template-columns: 1fr; } }
+.card { background: #fff; border: 1px solid #e9e4d8; border-radius: 14px; padding: 1.25rem; box-shadow: 0 2px 10px rgba(13,58,92,.05); }
  main.card { max-width: 420px; margin: 4rem auto; }
 .center { text-align: center; }
 .muted { color: oklch(0.45 0.03 225); font-size:.9rem; }
