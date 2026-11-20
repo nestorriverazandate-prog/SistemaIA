@@ -68,8 +68,9 @@
     const g = await geocodificar(p);
     if (g) { p.lat = g.lat; p.lng = g.lng; }
    }
+   loading = false;
    await tick();
-   if (!mapEl) { loading = false; return; }
+   if (!mapEl) return;
    L = (await import('leaflet')).default;
    const conCoords = pacientes.filter((p) => p.lat != null && p.lng != null);
    map = L.map(mapEl).setView(conCoords.length ? [conCoords[0].lat, conCoords[0].lng] : [19.4326, -99.1332], 12);

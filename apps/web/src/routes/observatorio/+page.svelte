@@ -114,8 +114,9 @@
    perfil = me.perfil;
    if (perfil?.rol !== 'admin') { loading = false; return; }
    await cargar();
+   loading = false;
    await tick();
-   if (!mapEl) { loading = false; return; }
+   if (!mapEl) return;
    L = (await import('leaflet')).default;
    map = L.map(mapEl).setView([31.6904, -106.4250], 11); // Ciudad Juárez
    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
