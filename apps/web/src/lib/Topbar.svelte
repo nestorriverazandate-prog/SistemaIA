@@ -16,7 +16,6 @@
   const fotoUrl = $derived(
     sesion.user?.perfil?.foto_path ? `/api/perfiles/${sesion.user.perfil.id}/foto?t=${Date.now()}` : null
   );
-  const esAdmin = $derived(sesion.user?.perfil?.rol === 'admin');
   const actual = $derived(moduloActual(page.url.pathname, nav));
 
   let ahora = $state(new Date());
@@ -55,40 +54,6 @@
     notifs = [];
   }
 
-  let q = $state('');
-  let resultados = $state([]);
-  let buscando = $state(false);
-  let timerQ;
-  $effect(() => {
-    clearTimeout(timerQ);
-    const texto = q.trim();
-    if (!esAdmin || texto.length < 2) { resultados = []; return; }
-    timerQ = setTimeout(async () => {
-      buscando = true;
-      try {
-        const [pacs, pers] = await Promise.all([
-          api.pacientes().catch(() => ({ pacientes: [] })),
-          api.directorio().catch(() => ({ trabajadores: [] }))
-        ]);
-        const t = texto.toLowerCase();
-        const out = [];
-        for (const p of pacs.pacientes || []) {
-          const nombreP = `${p.nombre || ''} ${p.apellido || ''} ${p.apellidos || ''}`.toLowerCase();
-          if (nombreP.includes(t) || (p.curp || '').toLowerCase().includes(t)) {
-            out.push({ tipo: 'Paciente', href: '/pacientes', nombre: `${p.nombre || ''} ${p.apellido || p.apellidos || ''}`.trim(), detalle: p.curp || '' });
-          }
-        }
-        for (const w of pers.trabajadores || pers.directorio || pers.perfiles || []) {
-          const nombreW = `${w.nombre || ''}`.toLowerCase();
-          if (nombreW.includes(t) || (w.correo || w.email || '').toLowerCase().includes(t)) {
-            out.push({ tipo: 'Empleado', href: '/personal', nombre: w.nombre || w.email || '', detalle: w.puesto || w.profesion || w.correo || w.email || '' });
-          }
-        }
-        resultados = out.slice(0, 8);
-      } catch {}
-      buscando = false;
-    }, 300);
-  });
 </script>
 
 {#if sesion.cargada && sesion.user}
@@ -103,25 +68,6 @@
         <b>{page.url.pathname === '/' ? 'Inicio' : 'AGI'}</b>
       {/if}
     </div>
-    {#if esAdmin}
-      <div class="busca">
-        <Icon name="search" size={15} />
-        <input type="search" placeholder="Buscar paciente o empleado…" bind:value={q} autocomplete="off" />
-        {#if resultados.length || buscando}
-          <div class="drop">
-            {#if buscando}<p class="mut">Buscando…</p>{/if}
-            {#each resultados as r (r.tipo + r.nombre)}
-              <a href={r.href} class="res">
-                <span class="tipo">{r.tipo}</span>
-                <b>{r.nombre}</b>
-                <span class="det">{r.detalle}</span>
-              </a>
-            {/each}
-            {#if !buscando && !resultados.length}<p class="mut">Sin resultados</p>{/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
   </div>
 
   <div class="der">
@@ -186,23 +132,6 @@
   .mig .area { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #8a7a4e; }
   .mig .sep { color: #c9c2b0; }
   .mig b { font-size: 15px; color: #0d3a5c; }
-  .busca { position: relative; flex: 1; max-width: 340px; }
-  .busca > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #8a94a0; }
-  .busca input {
-    width: 100%; padding: 8px 12px 8px 32px; border-radius: 10px;
-    border: 1px solid #ddd6c4; background: #faf9f5; font-size: 13px; color: #1a2430;
-  }
-  .busca input:focus { outline: none; border-color: #b8932f; box-shadow: 0 0 0 3px rgba(184, 147, 47, .15); }
-  .drop {
-    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 80;
-    background: #fff; border: 1px solid #e4ddcc; border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(13, 58, 92, .18); overflow: hidden;
-  }
-  .res { display: flex; align-items: baseline; gap: 8px; padding: 9px 12px; text-decoration: none; }
-  .res:hover { background: #f5f2ea; }
-  .res .tipo { font-size: 10px; font-weight: 800; text-transform: uppercase; color: #b8932f; min-width: 56px; }
-  .res b { font-size: 13px; color: #0d3a5c; }
-  .res .det { font-size: 11px; color: #8a94a0; margin-left: auto; }
   .mut { padding: 10px 12px; font-size: 12px; color: #8a94a0; margin: 0; }
   .der { display: flex; align-items: center; gap: 10px; }
   .reloj { font-size: 12px; color: #6b7a89; white-space: nowrap; }
@@ -249,6 +178,5 @@
   @media (max-width: 900px) {
     .top { margin-left: 0; padding: 0 14px 0 62px; }
     .mig .area, .mig .sep { display: none; }
-    .busca { max-width: none; }
   }
 </style>
