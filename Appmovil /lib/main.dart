@@ -6,7 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 /// URL pública del sistema (frontend en Vercel). Cambia aquí si el dominio cambia.
-const String kAppUrl = 'https://sistemaia-nestor-fbf5.vercel.app';
+const String kAppUrl = 'https://sistemaia-elw4-lake.vercel.app';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
