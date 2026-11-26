@@ -4,6 +4,7 @@ export const NAV = {
     { area: 'Dirección', items: [
       { href: '/', label: 'Resumen ejecutivo', icon: 'home' },
       { href: '/direccion', label: 'Dashboard dirección', icon: 'chart' },
+      { href: '/finanzas', label: 'Control financiero', icon: 'dollar' },
       { href: '/centro', label: 'Centro de inteligencia', icon: 'brain' }
     ]},
     { area: 'Gestión de pacientes', items: [

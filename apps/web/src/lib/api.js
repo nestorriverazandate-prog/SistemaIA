@@ -156,7 +156,38 @@ export const api = {
   obsGuardarDato: (body) => request('/api/observatorio/dato', { method: 'POST', body: JSON.stringify(body) }),
   obsEliminar: (tabla, id) => request(`/api/observatorio/${tabla}/${id}`, { method: 'DELETE' }),
   expedientePaciente: (id) => request(`/api/pacientes/${id}/expediente`),
-  evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`)
+  evidenciaUrl: (id) => request(`/api/evidencias/${id}/archivo`),
+  // Control financiero
+  finResumen: (params = '') => request(`/api/finanzas/resumen${params}`),
+  finMovimientos: (params = '') => request(`/api/finanzas/movimientos${params}`),
+  finCrearMovimiento: (body) => request('/api/finanzas/movimientos', { method: 'POST', body: JSON.stringify(body) }),
+  finActualizarMovimiento: (id, body) => request(`/api/finanzas/movimientos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  finComprobante: (id) => request(`/api/finanzas/movimientos/${id}/comprobante`),
+  finCuentas: () => request('/api/finanzas/cuentas-por-cobrar'),
+  finPresupuestos: (params = '') => request(`/api/finanzas/presupuestos${params}`),
+  finCrearPresupuesto: (body) => request('/api/finanzas/presupuestos', { method: 'POST', body: JSON.stringify(body) }),
+  finActualizarPresupuesto: (id, body) => request(`/api/finanzas/presupuestos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  finEliminarPresupuesto: (id) => request(`/api/finanzas/presupuestos/${id}`, { method: 'DELETE' }),
+  finEjecucion: () => request('/api/finanzas/presupuesto-ejecucion'),
+  finRentabilidad: (params = '') => request(`/api/finanzas/rentabilidad${params}`),
+  finAlertas: () => request('/api/finanzas/alertas'),
+  async finReporte(params = '') {
+    const headers = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API}/api/finanzas/reporte${params}`, { headers });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `Error ${res.status}`); }
+    const blob = await res.blob();
+    const dispo = res.headers.get('Content-Disposition') || '';
+    const nombre = /filename="?([^";]+)/.exec(dispo)?.[1] || 'reporte.csv';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre; a.click();
+    URL.revokeObjectURL(url);
+    return nombre;
+  },
+  misPagos: (params = '') => request(`/api/mis-pagos${params}`),
+  recordatorioPago: (id) => request(`/api/pagos/${id}/recordatorio`, { method: 'POST' })
 };
 
 async function requestBlob(path) {

@@ -22,6 +22,7 @@
  let encContacto = $state(false);
  let encMsg = $state('');
  let encAbierta = $state(null);
+ let cuentasPago = $state([]);
 
  async function responderEncuesta(e) {
   encMsg = '';
@@ -59,6 +60,10 @@
     encuestas = er.encuestas || [];
     encPreguntas = er.preguntas || [];
     encNiveles = er.niveles || {};
+   } catch {}
+   try {
+    const pr = await api.misPagos();
+    cuentasPago = pr.cuentas || [];
    } catch {}
   } catch (e) { error = e.message; }
  }
@@ -147,6 +152,39 @@
     <b>Vigencia:</b> ${perfil?.estado === 'aprobado' ? 'Cuenta activa' : 'Pendiente'}
    </div>
   </div><div class="cred-bot">CREDENCIAL DE FAMILIAR RESPONSABLE</div></div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+  </body></html>`);
+  w.document.close();
+ }
+
+ function imprimirRecibo(cuenta, pago) {
+  const w = window.open('', '_blank', 'width=640,height=760');
+  w.document.write(`<html><head><title>Recibo ${pago.recibo_folio || ''}</title><style>
+   body{font-family:Georgia,serif;max-width:560px;margin:32px auto;padding:0 20px;color:#222}
+   .head{text-align:center;border-bottom:3px solid #c9a227;padding-bottom:12px}
+   .head h1{font-size:1.15rem;margin:0;color:#234}.head p{margin:4px 0 0;font-size:.75rem;color:#666}
+   .logo{height:52px}
+   .recibo{border:2px dashed #c9a227;border-radius:12px;padding:18px;margin:18px 0}
+   table{width:100%;border-collapse:collapse;font-size:.85rem}td{padding:6px 4px;border-bottom:1px solid #eee}
+   .total{font-size:1.05rem;font-weight:700;color:#14663f}
+   .folio{text-align:center;font-size:.72rem;color:#8a6d1f;letter-spacing:.1em;margin-top:10px}
+   .foot{text-align:center;font-size:.68rem;color:#888;margin-top:18px}
+   @media print{body{margin:0}}
+  </style></head><body>
+  <div class="head"><img class="logo" src="${window.location.origin}/logo.png"/><h1>Agencia Gerontológica Integral</h1><p>Recibo de pago oficial</p></div>
+  <div class="recibo">
+   <table>
+    <tr><td><b>Paciente:</b></td><td>${cuenta.paciente.nombre}</td></tr>
+    <tr><td><b>Paquete:</b></td><td>${cuenta.paquete || '—'}</td></tr>
+    <tr><td><b>Fecha de pago:</b></td><td>${fmtFecha(pago.fecha)}</td></tr>
+    <tr><td><b>Monto:</b></td><td class="total">$${Number(pago.monto).toFixed(2)}</td></tr>
+    <tr><td><b>Método:</b></td><td>${pago.metodo || '—'}</td></tr>
+    <tr><td><b>Periodo:</b></td><td>${pago.periodo || '—'}</td></tr>
+    ${pago.comprobante_ref ? `<tr><td><b>Referencia:</b></td><td>${pago.comprobante_ref}</td></tr>` : ''}
+   </table>
+   <div class="folio">FOLIO ${pago.recibo_folio || '—'} · ${pago.registrado_por ? 'Registró: ' + pago.registrado_por : ''}</div>
+  </div>
+  <div class="foot">Documento generado por la plataforma AGI · ${new Date().toLocaleString('es-MX')}</div>
   <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
   </body></html>`);
   w.document.close();
@@ -272,6 +310,35 @@
   </form>
   {#if famErr}<p class="error">{famErr}</p>{/if}
   {#if famMsg}<p class="ok">{famMsg}</p>{/if}
+ </section>
+
+ <section class="card">
+  <h2>Pagos y estado de cuenta</h2>
+  {#if !cuentasPago.length}
+   <p class="muted">No tienes pagos registrados por ahora.</p>
+  {:else}
+   {#each cuentasPago as c (c.paciente.id)}
+    <div class="pago-cuenta">
+     <div class="pago-head">
+      <div><strong>{c.paciente.nombre}</strong> {#if c.paquete}<span class="muted small">· {c.paquete} (${Number(c.precio_mensual).toFixed(2)}/mes)</span>{/if}</div>
+      <span class="estado" class:pend={c.adeudo > 0}>{c.adeudo > 0 ? 'Saldo $' + Number(c.adeudo).toFixed(2) : 'Al corriente'}</span>
+     </div>
+     {#if c.proximo_vencimiento}<p class="muted small">Próximo vencimiento: {fmtFecha(c.proximo_vencimiento)}{#if c.ultimo_pago} · Último pago: {fmtFecha(c.ultimo_pago)}{/if}</p>{/if}
+     {#if c.pagos.length}
+      <table><thead><tr><th>Fecha</th><th>Periodo</th><th>Monto</th><th>Estado</th><th>Folio</th><th></th></tr></thead><tbody>
+      {#each c.pagos as p (p.id)}
+       <tr>
+        <td>{fmtFecha(p.fecha)}</td><td>{p.periodo || '—'}</td><td>${Number(p.monto).toFixed(2)}</td>
+        <td>{p.estado === 'pagado' ? 'Pagado' : 'Pendiente'}</td>
+        <td class="muted small">{p.recibo_folio || '—'}</td>
+        <td>{#if p.estado === 'pagado'}<button class="mini ghost" onclick={() => imprimirRecibo(c, p)}>Recibo</button>{/if}</td>
+       </tr>
+      {/each}
+      </tbody></table>
+     {:else}<p class="muted small">Sin movimientos de pago.</p>{/if}
+    </div>
+   {/each}
+  {/if}
  </section>
 
  <section class="card">
@@ -405,6 +472,8 @@ button.mini.ghost { color: oklch(0.45 0.03 225); border-color: oklch(0.45 0.03 2
 .enc-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .estado.ok { background: #d1e7dd; color: #0f5132; }
 .estado.pend { background: #fff3cd; color: #664d03; }
+.pago-cuenta { border: 1px solid oklch(0.92 0.02 140); border-radius: 10px; padding: .6rem .8rem; margin: .5rem 0; }
+.pago-head { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
 .enc-form { margin-top: .5rem; display: flex; flex-direction: column; gap: .4rem; }
 .enc-q { font-size: .82rem; }
 .enc-opts { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .15rem; }

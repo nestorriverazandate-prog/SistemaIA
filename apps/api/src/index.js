@@ -2040,14 +2040,22 @@ app.get('/api/pagos', requireUser, async (req, res) => {
 app.post('/api/pagos', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const { paciente_id, monto, fecha, metodo, estado, periodo, notas } = req.body || {};
+    const { paciente_id, monto, fecha, metodo, estado, periodo, notas, fecha_vencimiento, comprobante_ref, familiar_id } = req.body || {};
     if (!paciente_id || monto == null) return res.status(400).json({ error: 'paciente_id y monto son requeridos' });
-    const { data, error } = await supabase.from('pagos').insert({
+    const base = {
       paciente_id, monto: Number(monto), fecha: fecha || new Date().toISOString().slice(0, 10),
       metodo: metodo || null, estado: estado === 'pendiente' ? 'pendiente' : 'pagado',
       periodo: periodo || null, notas: notas ? String(notas).slice(0, 500) : null,
+      fecha_vencimiento: fecha_vencimiento || null, comprobante_ref: comprobante_ref ? String(comprobante_ref).slice(0, 200) : null,
+      familiar_id: familiar_id || null,
       registrado_por: req.user.email
-    }).select().single();
+    };
+    let { data, error } = await supabase.from('pagos').insert(base).select().single();
+    // Si la BD aún no tiene las columnas nuevas, reintenta sin ellas
+    if (error && /column .* does not exist/i.test(error.message || '')) {
+      const { fecha_vencimiento: _f, comprobante_ref: _c, familiar_id: _fm, ...sinNuevas } = base;
+      ({ data, error } = await supabase.from('pagos').insert(sinNuevas).select().single());
+    }
     if (error) throw error;
     res.status(201).json({ pago: data });
   } catch (e) { console.error('POST pago:', e); res.status(500).json({ error: 'Error al registrar pago' }); }
@@ -2056,17 +2064,619 @@ app.post('/api/pagos', requireUser, async (req, res) => {
 app.patch('/api/pagos/:id', requireUser, async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
   try {
-    const { estado, monto, metodo, notas } = req.body || {};
+    const { estado, monto, metodo, notas, fecha_vencimiento, comprobante_ref, familiar_id } = req.body || {};
     const update = {};
     if (estado && ['pagado', 'pendiente'].includes(estado)) update.estado = estado;
     if (monto != null) update.monto = Number(monto);
     if (metodo !== undefined) update.metodo = metodo || null;
     if (notas !== undefined) update.notas = notas ? String(notas).slice(0, 500) : null;
+    if (fecha_vencimiento !== undefined) update.fecha_vencimiento = fecha_vencimiento || null;
+    if (comprobante_ref !== undefined) update.comprobante_ref = comprobante_ref ? String(comprobante_ref).slice(0, 200) : null;
+    if (familiar_id !== undefined) update.familiar_id = familiar_id || null;
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const { data, error } = await supabase.from('pagos').update(update).eq('id', req.params.id).select().single();
+    let { data, error } = await supabase.from('pagos').update(update).eq('id', req.params.id).select().single();
+    if (error && /column .* does not exist/i.test(error.message || '')) {
+      const { fecha_vencimiento: _f, comprobante_ref: _c, familiar_id: _fm, ...base } = update;
+      ({ data, error } = await supabase.from('pagos').update(base).eq('id', req.params.id).select().single());
+    }
     if (error) throw error;
     res.json({ pago: data });
   } catch (e) { res.status(500).json({ error: 'Error al actualizar pago' }); }
+});
+
+// ============================================================
+// ---------- MÓDULO DE CONTROL FINANCIERO ----------
+// Los ingresos por familiares viven en `pagos` (fuente única).
+// `movimientos_financieros` registra otros ingresos y TODOS los egresos.
+// ============================================================
+const CATS_INGRESO = ['pagos_familiares', 'paquetes', 'servicios_adicionales', 'renovaciones', 'otros_ingresos'];
+const CATS_EGRESO = ['nomina', 'servicios', 'materiales', 'transporte', 'mantenimiento', 'capacitacion', 'administrativos', 'otros_gastos'];
+const CAT_LABEL = {
+  pagos_familiares: 'Pagos de familiares', paquetes: 'Contratación de paquetes', servicios_adicionales: 'Servicios adicionales',
+  renovaciones: 'Renovaciones de contrato', otros_ingresos: 'Otros ingresos',
+  nomina: 'Nómina del personal', servicios: 'Pago de servicios', materiales: 'Materiales e insumos', transporte: 'Transporte',
+  mantenimiento: 'Mantenimiento', capacitacion: 'Capacitación', administrativos: 'Gastos administrativos', otros_gastos: 'Otros gastos'
+};
+const hoyISO = () => new Date().toISOString().slice(0, 10);
+const rangoMes = (offset = 0) => {
+  const d = new Date(); d.setMonth(d.getMonth() + offset);
+  const ini = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const fin = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return { desde: ini, hasta: fin };
+};
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const diasEntre = (a, b) => Math.floor((new Date(b) - new Date(a)) / 86400000);
+const csvEsc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+const csvResp = (res, nombre, headers, rows) => {
+  const csv = '﻿' + [headers.map(csvEsc).join(','), ...rows.map((r) => r.map(csvEsc).join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nombre}.csv"`);
+  res.send(csv);
+};
+
+async function movsFinancieros(desde, hasta) {
+  const { data } = await supabase.from('movimientos_financieros')
+    .select('*').eq('anulado', false).gte('fecha', desde).lte('fecha', hasta).limit(5000);
+  return data || [];
+}
+async function pagosFinancieros(desde, hasta) {
+  const { data } = await supabase.from('pagos')
+    .select('*, pacientes(nombre, apellido, paquete_id, paquetes(nombre, precio))')
+    .gte('fecha', desde).lte('fecha', hasta).limit(5000);
+  return data || [];
+}
+
+// GET /api/finanzas/resumen — dashboard financiero del periodo
+app.get('/api/finanzas/resumen', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { desde, hasta } = req.query.desde && req.query.hasta ? { desde: req.query.desde, hasta: req.query.hasta } : rangoMes();
+    const [pagos, movs] = await Promise.all([pagosFinancieros(desde, hasta), movsFinancieros(desde, hasta)]);
+
+    const ingresosFamiliares = pagos.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0);
+    const cobradoCount = pagos.filter((p) => p.estado === 'pagado').length;
+    const pendientes = pagos.filter((p) => p.estado === 'pendiente');
+    const porCobrar = pendientes.reduce((s, p) => s + num(p.monto), 0);
+    const hoy = hoyISO();
+    const vencidos = pendientes.filter((p) => (p.fecha_vencimiento && p.fecha_vencimiento < hoy) || (!p.fecha_vencimiento && diasEntre(p.fecha, hoy) > 30));
+    const montoVencido = vencidos.reduce((s, p) => s + num(p.monto), 0);
+
+    const otrosIngresos = movs.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+    const egresos = movs.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+    const ingresosTotal = ingresosFamiliares + otrosIngresos;
+    const utilidad = ingresosTotal - egresos;
+    const rentabilidad = ingresosTotal > 0 ? Math.round((utilidad / ingresosTotal) * 1000) / 10 : 0;
+
+    // Desglose de egresos por categoría
+    const porCategoria = {};
+    for (const m of movs.filter((x) => x.tipo === 'egreso')) {
+      const k = m.categoria || 'otros_gastos';
+      porCategoria[k] = (porCategoria[k] || 0) + num(m.monto) * num(m.cantidad || 1);
+    }
+    const egresosPorCategoria = Object.entries(porCategoria).map(([categoria, monto]) => ({ categoria, etiqueta: CAT_LABEL[categoria] || categoria, monto: Math.round(monto * 100) / 100 })).sort((a, b) => b.monto - a.monto);
+
+    // Serie mensual: últimos 6 meses (ingresos vs egresos)
+    const mensual = [];
+    for (let i = 5; i >= 0; i--) {
+      const r = rangoMes(-i);
+      const [pm, mm] = await Promise.all([pagosFinancieros(r.desde, r.hasta), movsFinancieros(r.desde, r.hasta)]);
+      const ing = pm.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0)
+        + mm.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+      const egr = mm.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+      mensual.push({ mes: r.desde.slice(0, 7), ingresos: Math.round(ing * 100) / 100, egresos: Math.round(egr * 100) / 100, utilidad: Math.round((ing - egr) * 100) / 100 });
+    }
+    // Comparativo anual: meses del año en curso
+    const año = new Date().getFullYear();
+    const anual = [];
+    for (let m = 0; m < 12; m++) {
+      const ini = `${año}-${String(m + 1).padStart(2, '0')}-01`;
+      const fin = new Date(año, m + 1, 0).toISOString().slice(0, 10);
+      if (ini > hoy) break;
+      const [pm, mm] = await Promise.all([pagosFinancieros(ini, fin), movsFinancieros(ini, fin)]);
+      const ing = pm.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0)
+        + mm.filter((x) => x.tipo === 'ingreso').reduce((s, x) => s + num(x.monto) * num(x.cantidad || 1), 0);
+      const egr = mm.filter((x) => x.tipo === 'egreso').reduce((s, x) => s + num(x.monto) * num(x.cantidad || 1), 0);
+      anual.push({ mes: ini.slice(0, 7), ingresos: Math.round(ing * 100) / 100, egresos: Math.round(egr * 100) / 100 });
+    }
+    // Periodo anterior para comparativo
+    const ant = rangoMes(-1);
+    const [pa, ma] = await Promise.all([pagosFinancieros(ant.desde, ant.hasta), movsFinancieros(ant.desde, ant.hasta)]);
+    const ingAnt = pa.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0) + ma.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+    const egrAnt = ma.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+
+    res.json({
+      periodo: { desde, hasta },
+      ingresos_total: Math.round(ingresosTotal * 100) / 100,
+      ingresos_familiares: Math.round(ingresosFamiliares * 100) / 100,
+      otros_ingresos: Math.round(otrosIngresos * 100) / 100,
+      egresos: Math.round(egresos * 100) / 100,
+      utilidad: Math.round(utilidad * 100) / 100,
+      rentabilidad_pct: rentabilidad,
+      pagos_recibidos: cobradoCount,
+      pagos_pendientes: pendientes.length,
+      por_cobrar: Math.round(porCobrar * 100) / 100,
+      cuentas_vencidas: vencidos.length,
+      monto_vencido: Math.round(montoVencido * 100) / 100,
+      egresos_por_categoria: egresosPorCategoria,
+      mensual, anual,
+      comparativo: {
+        ingresos_ant: Math.round(ingAnt * 100) / 100, egresos_ant: Math.round(egrAnt * 100) / 100,
+        ingresos_var: ingresosTotal - ingAnt, egresos_var: egresos - egrAnt
+      }
+    });
+  } catch (e) { console.error('GET finanzas/resumen:', e); res.status(500).json({ error: 'Error al generar resumen financiero' }); }
+});
+
+// ---------- Movimientos financieros ----------
+app.get('/api/finanzas/movimientos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    let q = supabase.from('movimientos_financieros').select('*, pacientes(nombre, apellido)').order('fecha', { ascending: false }).limit(1000);
+    if (req.query.tipo) q = q.eq('tipo', req.query.tipo);
+    if (req.query.categoria) q = q.eq('categoria', req.query.categoria);
+    if (req.query.desde) q = q.gte('fecha', req.query.desde);
+    if (req.query.hasta) q = q.lte('fecha', req.query.hasta);
+    if (req.query.anulado === '1') q = q.eq('anulado', true); else if (req.query.anulado !== 'todos') q = q.eq('anulado', false);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ movimientos: data || [], categorias: { ingreso: CATS_INGRESO, egreso: CATS_EGRESO, labels: CAT_LABEL } });
+  } catch (e) { console.error('GET movs:', e); res.status(500).json({ error: 'Error al obtener movimientos' }); }
+});
+
+app.post('/api/finanzas/movimientos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const b = req.body || {};
+    const tipo = b.tipo === 'ingreso' ? 'ingreso' : 'egreso';
+    const categoria = String(b.categoria || (tipo === 'egreso' ? 'otros_gastos' : 'otros_ingresos')).slice(0, 60);
+    const concepto = String(b.concepto || '').trim().slice(0, 200);
+    if (!concepto) return res.status(400).json({ error: 'El concepto es requerido' });
+    const monto = num(b.monto);
+    if (monto <= 0) return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+
+    // Comprobante adjunto (dataURL → bucket privado 'comprobantes')
+    let comprobante_path = null;
+    if (b.comprobante && typeof b.comprobante === 'string' && b.comprobante.startsWith('data:')) {
+      const parsed = dataUrlABuffer(b.comprobante);
+      if (parsed && parsed.buffer.length <= 8 * 1024 * 1024) {
+        const ext = parsed.mime.includes('pdf') ? 'pdf' : parsed.mime.includes('png') ? 'png' : 'jpg';
+        comprobante_path = `mov/${Date.now()}-${randomBytes(4).toString('hex')}.${ext}`;
+        const up = await supabase.storage.from('comprobantes').upload(comprobante_path, parsed.buffer, { contentType: parsed.mime, upsert: false }).catch((er) => ({ error: er }));
+        if (up?.error) { console.error('upload comprobante:', up.error.message || up.error); comprobante_path = null; }
+      }
+    }
+
+    const { data, error } = await supabase.from('movimientos_financieros').insert({
+      tipo, categoria, concepto,
+      descripcion: b.descripcion ? String(b.descripcion).slice(0, 1000) : null,
+      monto, cantidad: num(b.cantidad) || 1,
+      metodo_pago: b.metodo_pago ? String(b.metodo_pago).slice(0, 60) : null,
+      fecha: b.fecha || hoyISO(),
+      responsable: b.responsable ? String(b.responsable).slice(0, 200) : null,
+      paciente_id: b.paciente_id || null,
+      comprobante_path,
+      comprobante_ref: b.comprobante_ref ? String(b.comprobante_ref).slice(0, 200) : null,
+      registrado_por: req.user.email
+    }).select().single();
+    if (error) {
+      if (/relation .* does not exist/i.test(error.message || '')) return res.status(503).json({ error: 'Falta ejecutar supabase/schema-finanzas.sql en la base de datos' });
+      throw error;
+    }
+    res.status(201).json({ movimiento: data });
+  } catch (e) { console.error('POST mov:', e); res.status(500).json({ error: 'Error al registrar movimiento' }); }
+});
+
+// PATCH movimiento: editar campos o anular (nunca se borra)
+app.patch('/api/finanzas/movimientos/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const b = req.body || {};
+    const { data: actual } = await supabase.from('movimientos_financieros').select('*').eq('id', req.params.id).maybeSingle();
+    if (!actual) return res.status(404).json({ error: 'Movimiento no encontrado' });
+
+    if (b.anular === true || b.anular === 'true') {
+      if (actual.anulado) return res.json({ movimiento: actual });
+      const motivo = String(b.motivo || '').trim().slice(0, 300);
+      if (!motivo) return res.status(400).json({ error: 'Se requiere motivo de anulación' });
+      const { data, error } = await supabase.from('movimientos_financieros')
+        .update({ anulado: true, anulado_por: req.user.email, anulado_at: new Date().toISOString(), motivo_anulacion: motivo })
+        .eq('id', req.params.id).select().single();
+      if (error) throw error;
+      return res.json({ movimiento: data });
+    }
+    if (actual.anulado) return res.status(400).json({ error: 'El movimiento está anulado; no se puede editar' });
+
+    const update = {};
+    if (b.concepto !== undefined) update.concepto = String(b.concepto).slice(0, 200);
+    if (b.descripcion !== undefined) update.descripcion = b.descripcion ? String(b.descripcion).slice(0, 1000) : null;
+    if (b.monto != null) { const m = num(b.monto); if (m <= 0) return res.status(400).json({ error: 'Monto inválido' }); update.monto = m; }
+    if (b.cantidad != null) update.cantidad = num(b.cantidad) || 1;
+    if (b.categoria) update.categoria = String(b.categoria).slice(0, 60);
+    if (b.metodo_pago !== undefined) update.metodo_pago = b.metodo_pago || null;
+    if (b.fecha) update.fecha = b.fecha;
+    if (b.responsable !== undefined) update.responsable = b.responsable || null;
+    if (b.paciente_id !== undefined) update.paciente_id = b.paciente_id || null;
+    if (b.comprobante_ref !== undefined) update.comprobante_ref = b.comprobante_ref || null;
+    if (b.comprobante && typeof b.comprobante === 'string' && b.comprobante.startsWith('data:')) {
+      const parsed = dataUrlABuffer(b.comprobante);
+      if (parsed && parsed.buffer.length <= 8 * 1024 * 1024) {
+        const ext = parsed.mime.includes('pdf') ? 'pdf' : parsed.mime.includes('png') ? 'png' : 'jpg';
+        const path = `mov/${req.params.id}-${Date.now()}.${ext}`;
+        const up = await supabase.storage.from('comprobantes').upload(path, parsed.buffer, { contentType: parsed.mime, upsert: false }).catch((er) => ({ error: er }));
+        if (!up?.error) update.comprobante_path = path;
+      }
+    }
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('movimientos_financieros').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ movimiento: data });
+  } catch (e) { console.error('PATCH mov:', e); res.status(500).json({ error: 'Error al actualizar movimiento' }); }
+});
+
+// URL firmada del comprobante
+app.get('/api/finanzas/movimientos/:id/comprobante', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: m } = await supabase.from('movimientos_financieros').select('comprobante_path').eq('id', req.params.id).maybeSingle();
+    if (!m?.comprobante_path) return res.status(404).json({ error: 'Sin comprobante' });
+    const { data, error } = await supabase.storage.from('comprobantes').createSignedUrl(m.comprobante_path, 3600);
+    if (error || !data?.signedUrl) return res.status(404).json({ error: 'Comprobante no disponible' });
+    res.json({ url: data.signedUrl });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ---------- Cuentas por cobrar (semáforo financiero) ----------
+app.get('/api/finanzas/cuentas-por-cobrar', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const hoy = hoyISO();
+    const mesIni = `${hoy.slice(0, 7)}-01`;
+    const [pacs, pagos] = await Promise.all([
+      supabase.from('pacientes').select('id, nombre, apellido, estado, paquete_id, paquetes(nombre, precio)').neq('estado', 'baja').limit(1000),
+      supabase.from('pagos').select('id, paciente_id, monto, fecha, fecha_vencimiento, estado, periodo, metodo').order('fecha', { ascending: false }).limit(5000)
+    ]);
+    if (pacs.error) throw pacs.error;
+    const porPaciente = {};
+    for (const p of pagos.data || []) {
+      const a = porPaciente[p.paciente_id] || (porPaciente[p.paciente_id] = { pagado: 0, pendiente: 0, vencido: 0, pagos: [], ultimoPagado: null, proximoVenc: null });
+      a.pagos.push(p);
+      if (p.estado === 'pagado') { a.pagado += num(p.monto); if (!a.ultimoPagado || p.fecha > a.ultimoPagado) a.ultimoPagado = p.fecha; }
+      else {
+        a.pendiente += num(p.monto);
+        const venc = p.fecha_vencimiento || p.fecha;
+        const dias = diasEntre(venc, hoy);
+        if (dias > 0 || (p.fecha_vencimiento && p.fecha_vencimiento < hoy)) a.vencido += num(p.monto);
+        if (!a.proximoVenc || venc < a.proximoVenc) a.proximoVenc = venc;
+      }
+    }
+    const cuentas = (pacs.data || []).map((p) => {
+      const agg = porPaciente[p.id] || { pagado: 0, pendiente: 0, vencido: 0, pagos: [], ultimoPagado: null, proximoVenc: null };
+      const precio = num(p.paquetes?.precio);
+      const activo = p.estado !== 'baja';
+      // Si tiene paquete activo y no registró pago del mes en curso → cuenta por vencer
+      const pagoMes = agg.pagos.find((x) => x.estado === 'pagado' && x.fecha >= mesIni);
+      const porVencer = activo && precio > 0 && !pagoMes ? precio : 0;
+      const adeudo = Math.round((agg.pendiente + porVencer) * 100) / 100;
+      const diasAtraso = agg.proximoVenc ? Math.max(0, diasEntre(agg.proximoVenc, hoy)) : 0;
+      let semaforo = 'verde';
+      if (adeudo > 0) semaforo = (agg.vencido > 0 || (porVencer === 0 && agg.pendiente > 0 && diasAtraso > 0)) ? 'rojo' : 'amarillo';
+      return {
+        paciente_id: p.id, nombre: `${p.nombre || ''} ${p.apellido || ''}`.trim(),
+        paquete: p.paquetes?.nombre || null, precio_mensual: precio,
+        pagado_periodo: pagoMes ? num(pagoMes.monto) : 0,
+        pendiente: Math.round(agg.pendiente * 100) / 100,
+        adeudo_total: adeudo,
+        ultimo_pago: agg.ultimoPagado,
+        proximo_vencimiento: agg.proximoVenc,
+        dias_atraso: diasAtraso,
+        semaforo,
+        historial: agg.pagos.slice(0, 20)
+      };
+    }).filter((c) => c.adeudo_total > 0 || c.paquete || c.historial.length)
+      .sort((a, b) => b.adeudo_total - a.adeudo_total);
+    const totales = {
+      cartera: cuentas.reduce((s, c) => s + c.adeudo_total, 0),
+      vencida: cuentas.filter((c) => c.semaforo === 'rojo').reduce((s, c) => s + c.adeudo_total, 0),
+      por_vencer: cuentas.filter((c) => c.semaforo === 'amarillo').reduce((s, c) => s + c.adeudo_total, 0),
+      al_corriente: cuentas.filter((c) => c.semaforo === 'verde').length
+    };
+    res.json({ cuentas, totales });
+  } catch (e) { console.error('GET cuentas:', e); res.status(500).json({ error: 'Error al obtener cuentas por cobrar' }); }
+});
+
+// ---------- Presupuestos ----------
+app.get('/api/finanzas/presupuestos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    let q = supabase.from('presupuestos').select('*').order('fecha_inicio', { ascending: false }).limit(500);
+    if (req.query.periodo) q = q.eq('periodo', req.query.periodo);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ presupuestos: data || [] });
+  } catch (e) { res.status(500).json({ error: 'Error al obtener presupuestos' }); }
+});
+
+app.post('/api/finanzas/presupuestos', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const b = req.body || {};
+    const periodo = ['mensual', 'trimestral', 'anual'].includes(b.periodo) ? b.periodo : 'mensual';
+    const categoria = String(b.categoria || '').slice(0, 60);
+    if (!categoria) return res.status(400).json({ error: 'La categoría es requerida' });
+    const monto = num(b.monto_limite ?? b.monto);
+    if (monto < 0) return res.status(400).json({ error: 'Monto inválido' });
+    let fecha_inicio = b.fecha_inicio || hoyISO();
+    if (periodo === 'trimestral') { const d = new Date(fecha_inicio); fecha_inicio = new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1).toISOString().slice(0, 10); }
+    if (periodo === 'anual') fecha_inicio = `${fecha_inicio.slice(0, 4)}-01-01`;
+    const { data, error } = await supabase.from('presupuestos').insert({
+      periodo, fecha_inicio, categoria, monto_limite: monto,
+      departamento: b.departamento ? String(b.departamento).slice(0, 120) : null,
+      notas: b.notas ? String(b.notas).slice(0, 500) : null,
+      creado_por: req.user.email
+    }).select().single();
+    if (error) { if (/relation .* does not exist/i.test(error.message || '')) return res.status(503).json({ error: 'Falta ejecutar schema-finanzas.sql' }); throw error; }
+    res.status(201).json({ presupuesto: data });
+  } catch (e) { console.error('POST presupuesto:', e); res.status(500).json({ error: 'Error al crear presupuesto' }); }
+});
+
+app.patch('/api/finanzas/presupuestos/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const b = req.body || {};
+    const update = {};
+    if (b.monto_limite != null || b.monto != null) { const m = num(b.monto_limite ?? b.monto); if (m < 0) return res.status(400).json({ error: 'Monto inválido' }); update.monto_limite = m; }
+    if (b.departamento !== undefined) update.departamento = b.departamento || null;
+    if (b.notas !== undefined) update.notas = b.notas || null;
+    if (b.categoria) update.categoria = String(b.categoria).slice(0, 60);
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'Nada que actualizar' });
+    const { data, error } = await supabase.from('presupuestos').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ presupuesto: data });
+  } catch (e) { res.status(500).json({ error: 'Error al actualizar presupuesto' }); }
+});
+
+app.delete('/api/finanzas/presupuestos/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { error } = await supabase.from('presupuestos').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error al eliminar presupuesto' }); }
+});
+
+// Presupuesto vs gasto real del periodo en curso
+app.get('/api/finanzas/presupuesto-ejecucion', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const hoy = hoyISO();
+    const { data: presups } = await supabase.from('presupuestos').select('*').limit(500);
+    const movs = await movsFinancieros('2000-01-01', hoy);
+    const rows = (presups || []).map((p) => {
+      // Ventana del presupuesto según periodo
+      const ini = p.fecha_inicio;
+      let fin;
+      if (p.periodo === 'anual') fin = `${ini.slice(0, 4)}-12-31`;
+      else if (p.periodo === 'trimestral') { const d = new Date(ini); fin = new Date(d.getFullYear(), d.getMonth() + 3, 0).toISOString().slice(0, 10); }
+      else fin = new Date(new Date(ini).getFullYear(), new Date(ini).getMonth() + 1, 0).toISOString().slice(0, 10);
+      const gasto = movs.filter((m) => m.tipo === 'egreso' && m.categoria === p.categoria && m.fecha >= ini && m.fecha <= fin)
+        .reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+      const pct = num(p.monto_limite) > 0 ? Math.round((gasto / num(p.monto_limite)) * 1000) / 10 : 0;
+      return { ...p, gasto_real: Math.round(gasto * 100) / 100, porcentaje: pct, estado: pct > 100 ? 'excedido' : pct >= 80 ? 'alerta' : 'ok' };
+    }).filter((r) => r.fecha_inicio <= hoy && (r.periodo === 'anual' ? r.fecha_inicio.slice(0, 4) === hoy.slice(0, 4) : r.fecha_inicio <= hoy));
+    res.json({ ejecucion: rows });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// ---------- Rentabilidad por paquete ----------
+app.get('/api/finanzas/rentabilidad', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { desde, hasta } = req.query.desde && req.query.hasta ? { desde: req.query.desde, hasta: req.query.hasta } : { desde: '2000-01-01', hasta: hoyISO() };
+    const [pacs, paquetes, pagos, movs] = await Promise.all([
+      supabase.from('pacientes').select('id, paquete_id, estado').limit(2000),
+      supabase.from('paquetes').select('*').order('nombre'),
+      pagosFinancieros(desde, hasta),
+      movsFinancieros(desde, hasta)
+    ]);
+    const egresosTotal = movs.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+    // ingresos por paciente → mapear a paquete
+    const ingresoPorPaciente = {};
+    for (const p of pagos.filter((x) => x.estado === 'pagado')) {
+      ingresoPorPaciente[p.paciente_id] = (ingresoPorPaciente[p.paciente_id] || 0) + num(p.monto);
+    }
+    const pacPorPaquete = {};
+    for (const p of pacs.data || []) {
+      if (!p.paquete_id) continue;
+      const a = pacPorPaquete[p.paquete_id] || (pacPorPaquete[p.paquete_id] = { total: 0, activos: 0 });
+      a.total++; if (p.estado !== 'baja') a.activos++;
+    }
+    const ingresoPorPaquete = {};
+    for (const p of pacs.data || []) {
+      if (!p.paquete_id) continue;
+      ingresoPorPaquete[p.paquete_id] = (ingresoPorPaquete[p.paquete_id] || 0) + (ingresoPorPaciente[p.id] || 0);
+    }
+    const ingresoGlobal = Object.values(ingresoPorPaquete).reduce((s, v) => s + v, 0);
+    const filas = (paquetes.data || []).map((pk) => {
+      const ingresos = Math.round((ingresoPorPaquete[pk.id] || 0) * 100) / 100;
+      const n = pacPorPaquete[pk.id]?.activos || 0;
+      // Costos asignados prorrateados por participación en ingresos (si no hay ingresos, por número de pacientes)
+      const share = ingresoGlobal > 0 ? ingresos / ingresoGlobal : (n / Math.max(1, Object.values(pacPorPaquete).reduce((s, a) => s + a.activos, 0)));
+      const costos = Math.round(egresosTotal * share * 100) / 100;
+      const utilidadBruta = Math.round((ingresos - costos) * 100) / 100;
+      const margen = ingresos > 0 ? Math.round((utilidadBruta / ingresos) * 1000) / 10 : 0;
+      return {
+        paquete_id: pk.id, nombre: pk.nombre, precio: num(pk.precio),
+        pacientes: n, ingresos, costos_asignados: costos,
+        utilidad_bruta: utilidadBruta, margen_pct: margen,
+        evaluacion: margen >= 30 ? 'rentable' : margen >= 10 ? 'moderado' : 'baja_rentabilidad'
+      };
+    }).sort((a, b) => b.ingresos - a.ingresos);
+    res.json({ paquetes: filas, total_egresos: Math.round(egresosTotal * 100) / 100, periodo: { desde, hasta } });
+  } catch (e) { console.error('GET rentabilidad:', e); res.status(500).json({ error: 'Error al calcular rentabilidad' }); }
+});
+
+// ---------- Alertas de inteligencia financiera ----------
+app.get('/api/finanzas/alertas', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const hoy = hoyISO();
+    const actual = rangoMes();
+    const anterior = rangoMes(-1);
+    const [pagos, movsAnt] = await Promise.all([
+      supabase.from('pagos').select('paciente_id, monto, estado, fecha, fecha_vencimiento').limit(5000),
+      movsFinancieros(anterior.desde, anterior.hasta)
+    ]);
+    const alertas = [];
+    // 1. Gastos que incrementaron >30% vs mes anterior por categoría
+    const catAct = {}, catAnt = {};
+    const movsMes = await movsFinancieros(actual.desde, actual.hasta);
+    for (const m of movsMes.filter((x) => x.tipo === 'egreso')) catAct[m.categoria] = (catAct[m.categoria] || 0) + num(m.monto) * num(m.cantidad || 1);
+    for (const m of movsAnt.filter((x) => x.tipo === 'egreso')) catAnt[m.categoria] = (catAnt[m.categoria] || 0) + num(m.monto) * num(m.cantidad || 1);
+    for (const [cat, val] of Object.entries(catAct)) {
+      const ant = catAnt[cat] || 0;
+      if (ant > 0 && val > ant * 1.3 && val - ant > 500) {
+        alertas.push({ tipo: 'gasto_incrementado', severidad: 'media', mensaje: `Gasto en ${CAT_LABEL[cat] || cat} subió ${Math.round(((val - ant) / ant) * 100)}% vs el mes anterior ($${Math.round(val - ant).toLocaleString('es-MX')} extra)` });
+      }
+    }
+    // 2. Cuentas vencidas
+    const venc = (pagos.data || []).filter((p) => p.estado === 'pendiente' && ((p.fecha_vencimiento && p.fecha_vencimiento < hoy) || (!p.fecha_vencimiento && diasEntre(p.fecha, hoy) > 30)));
+    if (venc.length) alertas.push({ tipo: 'cuentas_vencidas', severidad: 'alta', mensaje: `${venc.length} pago(s) vencido(s) por $${Math.round(venc.reduce((s, p) => s + num(p.monto), 0)).toLocaleString('es-MX')}` });
+    // 3. Deudores recurrentes (≥2 pendientes del mismo paciente)
+    const porPacPend = {};
+    for (const p of (pagos.data || []).filter((x) => x.estado === 'pendiente')) porPacPend[p.paciente_id] = (porPacPend[p.paciente_id] || 0) + 1;
+    const recurrentes = Object.values(porPacPend).filter((n) => n >= 2).length;
+    if (recurrentes) alertas.push({ tipo: 'deudores_recurrentes', severidad: 'media', mensaje: `${recurrentes} familiar(es) con adeudos recurrentes (2+ pagos pendientes)` });
+    // 4. Flujo de efectivo proyectado: promedio ingresos últimos 3 meses vs egresos promedio
+    const ingresos3m = [], egresos3m = [];
+    for (let i = 1; i <= 3; i++) {
+      const r = rangoMes(-i);
+      const [pm, mm] = await Promise.all([pagosFinancieros(r.desde, r.hasta), movsFinancieros(r.desde, r.hasta)]);
+      ingresos3m.push(pm.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0) + mm.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0));
+      egresos3m.push(mm.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0));
+    }
+    const promIng = ingresos3m.reduce((s, v) => s + v, 0) / 3;
+    const promEgr = egresos3m.reduce((s, v) => s + v, 0) / 3;
+    if (promIng > 0 && promEgr > promIng) {
+      alertas.push({ tipo: 'flujo_negativo', severidad: 'alta', mensaje: `Riesgo de flujo negativo: egresos promedio ($${Math.round(promEgr).toLocaleString('es-MX')}) superan ingresos promedio ($${Math.round(promIng).toLocaleString('es-MX')})` });
+    }
+    // 5. Ingreso proyectado próximo mes (basado en contratos: suma precios de paquetes activos)
+    const { data: pacAct } = await supabase.from('pacientes').select('paquete_id, paquetes(precio)').neq('estado', 'baja').limit(2000);
+    const proyectado = (pacAct || []).reduce((s, p) => s + num(p.paquetes?.precio), 0);
+    if (proyectado > 0) alertas.push({ tipo: 'ingreso_proyectado', severidad: 'info', mensaje: `Ingreso proyectado del próximo mes por contratos vigentes: ~$${Math.round(proyectado).toLocaleString('es-MX')}` });
+    res.json({ alertas });
+  } catch (e) { console.error('GET alertas:', e); res.status(500).json({ error: 'Error al generar alertas' }); }
+});
+
+// ---------- Reportes (CSV) ----------
+app.get('/api/finanzas/reporte', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const tipo = String(req.query.tipo || 'movimientos');
+    const { desde, hasta } = req.query.desde && req.query.hasta ? { desde: req.query.desde, hasta: req.query.hasta } : rangoMes();
+    if (tipo === 'movimientos') {
+      const movs = await movsFinancieros(desde, hasta);
+      const all = await supabase.from('movimientos_financieros').select('*, pacientes(nombre, apellido)').eq('anulado', true).gte('fecha', desde).lte('fecha', hasta).limit(1000);
+      const rows = [...movs, ...(all.data || [])].map((m) => [
+        m.fecha, m.tipo, CAT_LABEL[m.categoria] || m.categoria, m.concepto, m.descripcion || '',
+        num(m.monto) * num(m.cantidad || 1), m.cantidad, m.metodo_pago || '', m.responsable || '',
+        m.pacientes ? `${m.pacientes.nombre} ${m.pacientes.apellido}` : '', m.anulado ? 'ANULADO' : 'VIGENTE',
+        m.registrado_por || '', m.anulado_por || '', m.motivo_anulacion || ''
+      ]);
+      return csvResp(res, `movimientos_${desde}_${hasta}`, ['Fecha', 'Tipo', 'Categoría', 'Concepto', 'Descripción', 'Monto', 'Cantidad', 'Método de pago', 'Responsable', 'Paciente', 'Estado', 'Registró', 'Anuló', 'Motivo anulación'], rows);
+    }
+    if (tipo === 'cuentas-por-cobrar') {
+      const [pacs, pagosAll] = await Promise.all([
+        supabase.from('pacientes').select('id, nombre, apellido, paquete_id, paquetes(nombre, precio)').neq('estado', 'baja').limit(1000),
+        supabase.from('pagos').select('paciente_id, monto, fecha, fecha_vencimiento, estado').order('fecha', { ascending: false }).limit(5000)
+      ]);
+      const hoy = hoyISO();
+      const agg = {};
+      for (const p of pagosAll.data || []) {
+        const a = agg[p.paciente_id] || (agg[p.paciente_id] = { pagado: 0, pendiente: 0, ultimo: null });
+        if (p.estado === 'pagado') { a.pagado += num(p.monto); if (!a.ultimo || p.fecha > a.ultimo) a.ultimo = p.fecha; }
+        else a.pendiente += num(p.monto);
+      }
+      const rows = (pacs.data || []).map((p) => {
+        const a = agg[p.id] || { pagado: 0, pendiente: 0, ultimo: null };
+        return [`${p.nombre} ${p.apellido}`, p.paquetes?.nombre || '', num(p.paquetes?.precio), a.pagado, a.pendiente, a.ultimo || ''];
+      }).filter((r) => r[3] > 0 || r[4] > 0 || r[1]);
+      return csvResp(res, `cuentas_por_cobrar_${hoy}`, ['Paciente', 'Paquete', 'Precio mensual', 'Total pagado', 'Saldo pendiente', 'Último pago'], rows);
+    }
+    if (tipo === 'resumen' || tipo === 'estado-resultados') {
+      const [pagos, movs] = await Promise.all([pagosFinancieros(desde, hasta), movsFinancieros(desde, hasta)]);
+      const ingFam = pagos.filter((p) => p.estado === 'pagado').reduce((s, p) => s + num(p.monto), 0);
+      const otrosIng = movs.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+      const egr = movs.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + num(m.monto) * num(m.cantidad || 1), 0);
+      const porCat = {};
+      for (const m of movs.filter((x) => x.tipo === 'egreso')) porCat[m.categoria] = (porCat[m.categoria] || 0) + num(m.monto) * num(m.cantidad || 1);
+      const rows = [
+        ['Periodo', `${desde} a ${hasta}`], ['Ingresos familiares', ingFam], ['Otros ingresos', otrosIng],
+        ['TOTAL INGRESOS', ingFam + otrosIng], ['TOTAL EGRESOS', egr], ['UTILIDAD NETA', ingFam + otrosIng - egr],
+        [], ['EGRESOS POR CATEGORÍA', ''],
+        ...Object.entries(porCat).map(([c, v]) => [CAT_LABEL[c] || c, v])
+      ];
+      return csvResp(res, `estado_resultados_${desde}_${hasta}`, ['Concepto', 'Monto'], rows);
+    }
+    res.status(400).json({ error: 'Tipo de reporte inválido (movimientos, resumen)' });
+  } catch (e) { console.error('GET reporte:', e); res.status(500).json({ error: 'Error al generar reporte' }); }
+});
+
+// ---------- Pagos del familiar / estado de cuenta ----------
+app.get('/api/mis-pagos', requireUser, async (req, res) => {
+  try {
+    let pacienteIds = [];
+    if (isAdmin(req)) {
+      if (req.query.paciente_id) pacienteIds = [req.query.paciente_id];
+      else {
+        const { data: vs } = await supabase.from('vinculos_familiar').select('paciente_id').eq('familiar_id', req.user.id).eq('activo', true);
+        pacienteIds = (vs || []).map((v) => v.paciente_id);
+      }
+    } else {
+      if (!['familiar', 'staff', 'cuidador'].includes(req.user?.perfil?.rol)) return res.status(403).json({ error: 'Sin permiso' });
+      const { data: vs } = await supabase.from('vinculos_familiar').select('paciente_id').eq('familiar_id', req.user.id).eq('activo', true);
+      pacienteIds = (vs || []).map((v) => v.paciente_id);
+    }
+    if (!pacienteIds.length) return res.json({ cuentas: [] });
+    const hoy = hoyISO();
+    const [pacs, pagos] = await Promise.all([
+      supabase.from('pacientes').select('id, nombre, apellido, estado, paquete_id, paquetes(nombre, precio)').in('id', pacienteIds),
+      supabase.from('pagos').select('*').in('paciente_id', pacienteIds).order('fecha', { ascending: false }).limit(500)
+    ]);
+    const cuentas = (pacs.data || []).map((p) => {
+      const ps = (pagos.data || []).filter((x) => x.paciente_id === p.id);
+      const adeudo = ps.filter((x) => x.estado === 'pendiente').reduce((s, x) => s + num(x.monto), 0);
+      const precio = num(p.paquetes?.precio);
+      const proximo = ps.find((x) => x.estado === 'pendiente' && (x.fecha_vencimiento || x.fecha) >= hoy);
+      return {
+        paciente: { id: p.id, nombre: `${p.nombre} ${p.apellido}`, estado: p.estado },
+        paquete: p.paquetes?.nombre || null, precio_mensual: precio,
+        adeudo, pagos: ps,
+        ultimo_pago: ps.find((x) => x.estado === 'pagado')?.fecha || null,
+        proximo_vencimiento: proximo ? (proximo.fecha_vencimiento || proximo.fecha) : null
+      };
+    });
+    res.json({ cuentas });
+  } catch (e) { console.error('GET mis-pagos:', e); res.status(500).json({ error: 'Error al obtener pagos' }); }
+});
+
+// Recordatorio de pago → notificación in-app + SMS/WhatsApp si está configurado
+app.post('/api/pagos/:id/recordatorio', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo' });
+  try {
+    const { data: pago } = await supabase.from('pagos').select('*, pacientes(nombre, apellido)').eq('id', req.params.id).maybeSingle();
+    if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+    const { data: vs } = await supabase.from('vinculos_familiar').select('familiar_id').eq('paciente_id', pago.paciente_id).eq('activo', true);
+    const fams = (vs || []).map((v) => v.familiar_id);
+    const nombrePac = `${pago.pacientes?.nombre || ''} ${pago.pacientes?.apellido || ''}`.trim();
+    const mensaje = `Recordatorio de pago: tiene un saldo pendiente de $${num(pago.monto).toLocaleString('es-MX')} correspondiente a ${nombrePac}${pago.periodo ? ` (${pago.periodo})` : ''}. Por favor regularice su pago.`;
+    const rows = fams.map((fid) => ({ destinatario_id: fid, tipo: 'recordatorio_pago', mensaje, datos: { pago_id: pago.id, paciente_id: pago.paciente_id, monto: pago.monto } }));
+    if (rows.length) await supabase.from('notificaciones').insert(rows);
+    // SMS al teléfono del paciente si hay familiar con teléfono registrado
+    let sms = 'omitido';
+    const { data: pac } = await supabase.from('pacientes').select('telefono').eq('id', pago.paciente_id).maybeSingle();
+    if (pac?.telefono) sms = await enviarSms(pac.telefono, `AGI: ${mensaje}`);
+    res.json({ ok: true, notificados: fams.length, sms });
+  } catch (e) { console.error('POST recordatorio:', e); res.status(500).json({ error: 'Error al enviar recordatorio' }); }
 });
 
 // ---------- Evaluación de desempeño del empleado ----------
