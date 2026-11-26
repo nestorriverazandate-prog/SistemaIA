@@ -8,7 +8,7 @@
   let tab = $state('panel');
   let loading = $state(true);
   let error = $state('');
-  const d = $state({ resumen: null, movs: [], categorias: null, cxc: null, presupuestos: [], ejecucion: [], rentabilidad: null, alertas: [], pacientes: [] });
+  const d = $state({ resumen: null, movs: [], categorias: null, cxc: null, presupuestos: [], ejecucion: [], rentabilidad: null, alertas: [], pacientes: [], comprobantes: [] });
 
   const hoy = new Date().toISOString().slice(0, 10);
   const mesIni = hoy.slice(0, 7) + '-01';
@@ -18,7 +18,7 @@
   async function cargar() {
     loading = true; error = '';
     try {
-      const [res, movs, cxc, pres, ejec, rent, alerts, pacs] = await Promise.all([
+      const [res, movs, cxc, pres, ejec, rent, alerts, pacs, comps] = await Promise.all([
         api.finResumen(`?desde=${desde}&hasta=${hasta}`).catch(() => null),
         api.finMovimientos('?anulado=todos').catch(() => ({ movimientos: [] })),
         api.finCuentas().catch(() => null),
@@ -26,11 +26,13 @@
         api.finEjecucion().catch(() => ({ ejecucion: [] })),
         api.finRentabilidad().catch(() => null),
         api.finAlertas().catch(() => ({ alertas: [] })),
-        api.pacientes().catch(() => ({ pacientes: [] }))
+        api.pacientes().catch(() => ({ pacientes: [] })),
+        api.comprobantes().catch(() => ({ comprobantes: [] }))
       ]);
       d.resumen = res; d.movs = movs.movimientos || []; d.categorias = movs.categorias || null;
       d.cxc = cxc; d.presupuestos = pres.presupuestos || []; d.ejecucion = ejec.ejecucion || [];
       d.rentabilidad = rent; d.alertas = alerts.alertas || []; d.pacientes = pacs.pacientes || [];
+      d.comprobantes = comps.comprobantes || [];
     } catch (e) { error = e.message || 'Error al cargar'; }
     loading = false;
   }
@@ -39,7 +41,7 @@
   const fmt$ = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
   const num2 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const tabs = [
-    ['panel', 'Panel'], ['movimientos', 'Movimientos'], ['por-cobrar', 'Por cobrar'],
+    ['panel', 'Panel'], ['movimientos', 'Movimientos'], ['comprobantes', 'Comprobantes'], ['por-cobrar', 'Por cobrar'],
     ['presupuestos', 'Presupuestos'], ['rentabilidad', 'Rentabilidad'], ['reportes', 'Reportes']
   ];
 
@@ -105,6 +107,23 @@
     try { const r = await api.recordatorioPago(pagoId); alert(`Recordatorio enviado a ${r.notificados} familiar(es)${r.sms !== 'omitido' ? ` · SMS: ${r.sms}` : ''}`); }
     catch (e) { error = e.message; }
     recordando = '';
+  }
+
+  // ---- Comprobantes de pago del familiar ----
+  async function verComprobanteComp(c) {
+    try { const r = await api.comprobanteUrl(c.id); window.open(r.url, '_blank'); }
+    catch (e) { error = e.message; }
+  }
+  async function aprobarComp(c) {
+    if (!confirm(`¿Aprobar el pago de $${Number(c.monto).toLocaleString('es-MX')} reportado por ${c.perfiles?.nombre || 'el familiar'}?\n\nVerifica primero que el dinero sí aparezca en la cuenta BBVA.`)) return;
+    try { await api.validarComprobante(c.id, { accion: 'aprobar' }); await cargar(); }
+    catch (e) { error = e.message; }
+  }
+  async function rechazarComp(c) {
+    const motivo = prompt('Motivo del rechazo (el familiar lo verá en su perfil):');
+    if (!motivo) return;
+    try { await api.validarComprobante(c.id, { accion: 'rechazar', motivo }); await cargar(); }
+    catch (e) { error = e.message; }
   }
 
   const catLabel = (c) => d.categorias?.labels?.[c] || c || '—';
@@ -272,6 +291,45 @@
                   </td>
                 </tr>
               {:else}<tr><td colspan="7" class="vacio">Sin movimientos. Los <b>pagos de familiares</b> se registran en Pacientes → expediente → Pagos; aquí van egresos y otros ingresos.</td></tr>{/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    {:else if tab === 'comprobantes'}
+      <!-- ============ COMPROBANTES DE PAGO ============ -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Comprobantes de pago enviados por familiares</h2>
+          <span class="muted">Verifica el depósito en BBVA antes de aprobar</span>
+        </div>
+        <div class="tabla-wrap">
+          <table class="tabla">
+            <thead><tr><th>Enviado</th><th>Familiar</th><th>Paciente</th><th>Paquete</th><th>Monto</th><th>Método</th><th>Referencia</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody>
+              {#each d.comprobantes as c}
+                <tr>
+                  <td>{new Date(c.created_at).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td><b>{c.perfiles?.nombre || '—'}</b></td>
+                  <td>{c.pacientes?.nombre} {c.pacientes?.apellido}</td>
+                  <td>{c.paquetes?.nombre || '—'}</td>
+                  <td><b>{fmt$(c.monto)}</b></td>
+                  <td>{c.metodo === 'deposito' ? 'Depósito' : 'Transferencia'}<br /><small>{c.fecha_deposito}</small></td>
+                  <td>{c.referencia || '—'}</td>
+                  <td>
+                    <span class="chip {c.estado === 'aprobado' ? 'ok' : c.estado === 'rechazado' ? 'rojo' : 'amarillo'}">{c.estado === 'aprobado' ? 'Aprobado' : c.estado === 'rechazado' ? 'Rechazado' : 'Pendiente'}</span>
+                    {#if c.motivo_rechazo}<br /><small class="neg">{c.motivo_rechazo}</small>{/if}
+                    {#if c.revisado_at}<br /><small>por {c.revisado_por} · {new Date(c.revisado_at).toLocaleDateString('es-MX')}</small>{/if}
+                  </td>
+                  <td class="acc">
+                    {#if c.comprobante_path}<button class="mini" onclick={() => verComprobanteComp(c)}>Ver comprobante</button>{/if}
+                    {#if c.estado === 'pendiente'}
+                      <button class="mini ok" onclick={() => aprobarComp(c)}>Aprobar</button>
+                      <button class="mini danger" onclick={() => rechazarComp(c)}>Rechazar</button>
+                    {/if}
+                  </td>
+                </tr>
+              {:else}<tr><td colspan="9" class="vacio">Sin comprobantes enviados</td></tr>{/each}
             </tbody>
           </table>
         </div>
@@ -490,6 +548,7 @@
   .tabla small { color: #8a94a0; }
   .mini { padding: 4px 9px; border: none; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer; background: #eef5fb; color: #0d5c8a; margin-right: 4px; }
   .mini.danger { background: #fdecea; color: #c0392b; }
+  .mini.ok { background: #e5f5ec; color: #14663f; }
   .mini:disabled { opacity: .5; }
 
   .chip { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; }

@@ -187,7 +187,11 @@ export const api = {
     return nombre;
   },
   misPagos: (params = '') => request(`/api/mis-pagos${params}`),
-  recordatorioPago: (id) => request(`/api/pagos/${id}/recordatorio`, { method: 'POST' })
+  recordatorioPago: (id) => request(`/api/pagos/${id}/recordatorio`, { method: 'POST' }),
+  comprobantes: (params = '') => request(`/api/comprobantes${params}`),
+  enviarComprobante: (body) => request('/api/comprobantes', { method: 'POST', body: JSON.stringify(body) }),
+  comprobanteUrl: (id) => request(`/api/comprobantes/${id}/comprobante`),
+  validarComprobante: (id, body) => request(`/api/comprobantes/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 };
 
 async function requestBlob(path) {

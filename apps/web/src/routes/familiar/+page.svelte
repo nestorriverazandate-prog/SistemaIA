@@ -23,6 +23,47 @@
  let encMsg = $state('');
  let encAbierta = $state(null);
  let cuentasPago = $state([]);
+ let comprobantes = $state([]);
+ let compForm = $state({ paciente_id: '', monto: '', fecha_deposito: new Date().toISOString().slice(0, 10), metodo: 'transferencia', referencia: '' });
+ let compArchivo = $state(null);
+ let compEnviando = $state(false);
+ let compMsg = $state('');
+ let compErr = $state('');
+ let copiado = $state('');
+
+ function copiar(txt, cual) {
+  navigator.clipboard?.writeText(txt).then(() => { copiado = cual; setTimeout(() => (copiado = ''), 1500); });
+ }
+ function onCompArchivo(e) {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  if (f.size > 8 * 1024 * 1024) { compErr = 'El archivo no debe superar 8 MB'; return; }
+  const rd = new FileReader();
+  rd.onload = () => (compArchivo = rd.result);
+  rd.readAsDataURL(f);
+ }
+ async function enviarComprobante() {
+  compErr = ''; compMsg = '';
+  if (!compForm.paciente_id || !Number(compForm.monto) || !compForm.referencia.trim()) {
+   compErr = 'Completa paciente, monto y referencia de la operación'; return;
+  }
+  compEnviando = true;
+  try {
+   await api.enviarComprobante({ ...compForm, monto: Number(compForm.monto), comprobante: compArchivo });
+   compMsg = 'Tu comprobante ha sido enviado correctamente. Nuestro equipo administrativo verificará tu pago y recibirás una notificación cuando haya sido validado.';
+   compForm = { paciente_id: '', monto: '', fecha_deposito: new Date().toISOString().slice(0, 10), metodo: 'transferencia', referencia: '' };
+   compArchivo = null;
+   const cr = await api.comprobantes();
+   comprobantes = cr.comprobantes || [];
+   await cargar();
+  } catch (e) { compErr = e.message; }
+  finally { compEnviando = false; }
+ }
+ async function verComp(c) {
+  try { const r = await api.comprobanteUrl(c.id); window.open(r.url, '_blank'); }
+  catch (e) { compErr = e.message; }
+ }
+ function estadoComp(e) { return e === 'aprobado' ? 'Aprobado' : e === 'rechazado' ? 'Rechazado' : 'Pendiente de revisión'; }
 
  async function responderEncuesta(e) {
   encMsg = '';
@@ -64,6 +105,10 @@
    try {
     const pr = await api.misPagos();
     cuentasPago = pr.cuentas || [];
+   } catch {}
+   try {
+    const cr = await api.comprobantes();
+    comprobantes = cr.comprobantes || [];
    } catch {}
   } catch (e) { error = e.message; }
  }
@@ -313,6 +358,74 @@
  </section>
 
  <section class="card">
+  <h2>Pagos y depósitos</h2>
+
+  <!-- 1. Datos bancarios -->
+  <div class="bank-card">
+   <div class="bank-head">
+    <div class="bank-logo">BBVA</div>
+    <div>
+     <strong>Datos bancarios para realizar tu pago</strong>
+     <p class="muted small">Banco BBVA · Verifica los datos bancarios antes de realizar tu depósito o transferencia</p>
+    </div>
+   </div>
+   <div class="bank-datos">
+    <div class="bank-row"><span>Titular de la cuenta</span><b>NESTOR RIVERA ZANDATE</b><button class="mini ghost" onclick={() => copiar('NESTOR RIVERA ZANDATE', 'titular')}>{copiado === 'titular' ? 'Copiado' : 'Copiar'}</button></div>
+    <div class="bank-row"><span>Número de tarjeta</span><b class="tarjeta">4152 3144 7451 1436</b><button class="mini ghost" onclick={() => copiar('4152 3144 7451 1436', 'tarjeta')}>{copiado === 'tarjeta' ? 'Copiado' : 'Copiar'}</button></div>
+   </div>
+  </div>
+
+  <!-- 2. Registrar pago -->
+  <h3 class="sub-h">Registrar un pago</h3>
+  <form class="comp-form" onsubmit={(e) => { e.preventDefault(); enviarComprobante(); }}>
+   <div class="frow">
+    <label>Adulto mayor *
+     <select bind:value={compForm.paciente_id} required>
+      <option value="">Selecciona…</option>
+      {#each grupos as g (g.paciente.id)}<option value={g.paciente.id}>{g.paciente.nombre} {g.paciente.apellido}{g.paquete?.nombre ? ' · ' + g.paquete.nombre : ''}</option>{/each}
+     </select>
+    </label>
+    <label>Cantidad depositada *<input type="number" step="0.01" min="0.01" bind:value={compForm.monto} required placeholder="0.00" /></label>
+    <label>Fecha del depósito<input type="date" bind:value={compForm.fecha_deposito} required /></label>
+   </div>
+   <div class="frow">
+    <label>Método de pago *
+     <select bind:value={compForm.metodo} required><option value="transferencia">Transferencia</option><option value="deposito">Depósito bancario</option></select>
+    </label>
+    <label class="grow">Número de referencia o folio *<input bind:value={compForm.referencia} required maxlength="100" placeholder="Folio de la operación" /></label>
+    <label>Comprobante (JPG, PNG o PDF)
+     <input type="file" accept="image/*,application/pdf" onchange={onCompArchivo} />
+     {#if compArchivo}<span class="ok small">Archivo adjunto ✓</span>{/if}
+    </label>
+   </div>
+   {#if compErr}<p class="error small">{compErr}</p>{/if}
+   {#if compMsg}<p class="ok small">{compMsg}</p>{/if}
+   <button disabled={compEnviando}>{compEnviando ? 'Enviando…' : 'Enviar comprobante de pago'}</button>
+  </form>
+
+  <!-- 4. Historial de comprobantes -->
+  {#if comprobantes.length}
+   <h3 class="sub-h">Historial de comprobantes enviados</h3>
+   <table><thead><tr><th>Fecha</th><th>Paciente</th><th>Monto</th><th>Método</th><th>Referencia</th><th>Estado</th><th></th></tr></thead><tbody>
+    {#each comprobantes as c (c.id)}
+     <tr>
+      <td>{fmtFecha(c.created_at)}</td>
+      <td>{c.pacientes?.nombre} {c.pacientes?.apellido}</td>
+      <td>${Number(c.monto).toFixed(2)}</td>
+      <td>{c.metodo === 'deposito' ? 'Depósito' : 'Transferencia'}</td>
+      <td class="muted small">{c.referencia || '—'}</td>
+      <td><span class="estado" class:ok={c.estado === 'aprobado'} class:pend={c.estado === 'pendiente'} class:rech={c.estado === 'rechazado'}>{estadoComp(c.estado)}</span>
+       {#if c.motivo_rechazo}<br /><span class="muted small">Motivo: {c.motivo_rechazo}</span>{/if}
+       {#if c.revisado_at}<br /><span class="muted small">{fmtFecha(c.revisado_at)}</span>{/if}
+      </td>
+      <td>{#if c.comprobante_path}<button class="mini ghost" onclick={() => verComp(c)}>Ver</button>{/if}</td>
+     </tr>
+    {/each}
+   </tbody></table>
+  {/if}
+ </section>
+
+ <section class="card">
   <h2>Pagos y estado de cuenta</h2>
   {#if !cuentasPago.length}
    <p class="muted">No tienes pagos registrados por ahora.</p>
@@ -472,6 +585,20 @@ button.mini.ghost { color: oklch(0.45 0.03 225); border-color: oklch(0.45 0.03 2
 .enc-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .estado.ok { background: #d1e7dd; color: #0f5132; }
 .estado.pend { background: #fff3cd; color: #664d03; }
+.estado.rech { background: #f8d7da; color: #842029; }
+.sub-h { font-size: .85rem; font-weight: 700; color: #234; margin: .9rem 0 .4rem; }
+.bank-card { border: 1.5px solid oklch(0.75 0.09 255); border-radius: 12px; padding: .9rem 1rem; background: linear-gradient(135deg, #f4f8fd, #eef3fa); margin-bottom: .8rem; }
+.bank-head { display: flex; gap: .8rem; align-items: center; margin-bottom: .6rem; }
+.bank-logo { background: #0b3d91; color: #fff; font-weight: 800; font-size: .8rem; letter-spacing: .05em; padding: .45rem .7rem; border-radius: 8px; }
+.bank-datos { display: flex; flex-direction: column; gap: .35rem; }
+.bank-row { display: flex; align-items: center; gap: .6rem; font-size: .85rem; flex-wrap: wrap; }
+.bank-row span { color: #555; min-width: 150px; }
+.bank-row b.tarjeta { font-size: 1rem; letter-spacing: .06em; color: #0d3a5c; }
+.comp-form { display: flex; flex-direction: column; gap: .6rem; }
+.frow { display: flex; gap: .6rem; flex-wrap: wrap; }
+.frow label { display: flex; flex-direction: column; gap: .2rem; font-size: .72rem; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: .03em; }
+.frow label.grow { flex: 1; min-width: 200px; }
+.frow input, .frow select { padding: .5rem .6rem; border: 1px solid oklch(0.86 0.02 85); border-radius: 8px; font: inherit; font-size: .85rem; min-width: 140px; }
 .pago-cuenta { border: 1px solid oklch(0.92 0.02 140); border-radius: 10px; padding: .6rem .8rem; margin: .5rem 0; }
 .pago-head { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
 .enc-form { margin-top: .5rem; display: flex; flex-direction: column; gap: .4rem; }

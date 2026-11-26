@@ -2679,6 +2679,175 @@ app.post('/api/pagos/:id/recordatorio', requireUser, async (req, res) => {
   } catch (e) { console.error('POST recordatorio:', e); res.status(500).json({ error: 'Error al enviar recordatorio' }); }
 });
 
+// ============================================================
+// ---------- COMPROBANTES DE PAGO DEL FAMILIAR ----------
+// El familiar reporta un depósito/transferencia; el directivo
+// verifica en banco y APRUEBA o RECHAZA. Solo al aprobar se
+// registra el ingreso real en `pagos` (sin duplicados).
+// ============================================================
+
+// Familiar envía su comprobante de pago
+app.post('/api/comprobantes', requireUser, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const admin = isAdmin(req);
+    const familiar_id = admin ? (b.familiar_id || req.user.id) : req.user.id;
+    const { paciente_id } = b;
+    const monto = num(b.monto);
+    const fecha_deposito = b.fecha_deposito || hoyISO();
+    const metodo = ['deposito', 'transferencia'].includes(b.metodo) ? b.metodo : null;
+    const referencia = b.referencia ? String(b.referencia).trim().slice(0, 100) : null;
+    if (!paciente_id || monto <= 0 || !metodo) {
+      return res.status(400).json({ error: 'Paciente, monto y método de pago son obligatorios' });
+    }
+    // El paciente debe estar vinculado al familiar (salvo admin)
+    if (!admin) {
+      const { data: v } = await supabase.from('vinculos_familiar').select('id').eq('paciente_id', paciente_id).eq('familiar_id', familiar_id).eq('activo', true).limit(1);
+      if (!v?.length) return res.status(403).json({ error: 'Ese adulto mayor no está vinculado a tu cuenta' });
+    }
+    // Paquete del paciente
+    const { data: pac } = await supabase.from('pacientes').select('id, nombre, apellido, paquete_id, paquetes(nombre, precio)').eq('id', paciente_id).maybeSingle();
+    if (!pac) return res.status(404).json({ error: 'Paciente no encontrado' });
+    // Anti-duplicados por referencia
+    if (referencia) {
+      const { data: dup } = await supabase.from('comprobantes_pago').select('id').eq('referencia', referencia).limit(1);
+      let dupPago = [];
+      try {
+        const r = await supabase.from('pagos').select('id').eq('comprobante_ref', referencia).limit(1);
+        dupPago = r.data || [];
+      } catch { /* columna aun no existe */ }
+      if (dup?.length || dupPago.length) return res.status(409).json({ error: 'Esa referencia ya fue registrada anteriormente' });
+    }
+    // Comprobante (imagen o PDF → bucket privado)
+    let comprobante_path = null;
+    if (b.comprobante && typeof b.comprobante === 'string' && b.comprobante.startsWith('data:')) {
+      const parsed = dataUrlABuffer(b.comprobante);
+      if (parsed && parsed.buffer.length <= 8 * 1024 * 1024) {
+        const ext = parsed.mime.includes('pdf') ? 'pdf' : parsed.mime.includes('png') ? 'png' : 'jpg';
+        comprobante_path = `${paciente_id}/${Date.now()}-${randomBytes(4).toString('hex')}.${ext}`;
+        const up = await supabase.storage.from('comprobantes-pago').upload(comprobante_path, parsed.buffer, { contentType: parsed.mime, upsert: false }).catch((er) => ({ error: er }));
+        if (up?.error) { console.error('upload comprobante pago:', up.error.message || up.error); comprobante_path = null; }
+      }
+    }
+    const { data, error } = await supabase.from('comprobantes_pago').insert({
+      familiar_id, paciente_id, paquete_id: pac.paquete_id || null,
+      monto, fecha_deposito, metodo, referencia, comprobante_path
+    }).select().single();
+    if (error) {
+      if (/relation .* does not exist/i.test(error.message || '')) return res.status(503).json({ error: 'Falta ejecutar supabase/schema-comprobantes.sql en la base de datos' });
+      if (/duplicate key|unique/i.test(error.message || '')) return res.status(409).json({ error: 'Esa referencia ya fue registrada anteriormente' });
+      throw error;
+    }
+    // Notificar a los administradores
+    const { data: admins } = await supabase.from('perfiles').select('id').eq('rol', 'admin').eq('estado', 'aprobado');
+    const { data: fam } = await supabase.from('perfiles').select('nombre').eq('id', familiar_id).maybeSingle();
+    const nombrePac = `${pac.nombre || ''} ${pac.apellido || ''}`.trim();
+    const notif = `Comprobante de pago pendiente de revisión: ${fam?.nombre || 'Familiar'} reportó $${num(monto).toLocaleString('es-MX')} por ${nombrePac}${pac.paquetes?.nombre ? ` (${pac.paquetes.nombre})` : ''}${referencia ? ` · ref. ${referencia}` : ''}`;
+    const rows = (admins || []).map((a) => ({ destinatario_id: a.id, tipo: 'comprobante_pago', mensaje: notif, datos: { comprobante_id: data.id, paciente_id, monto } }));
+    if (rows.length) await supabase.from('notificaciones').insert(rows);
+    // Confirmación al familiar
+    await supabase.from('notificaciones').insert({
+      destinatario_id: familiar_id, tipo: 'comprobante_recibido',
+      mensaje: `Recibimos tu comprobante de $${num(monto).toLocaleString('es-MX')} por ${nombrePac}. Nuestro equipo lo verificará y te avisaremos cuando sea validado.`,
+      datos: { comprobante_id: data.id }
+    }).then(() => {});
+    res.status(201).json({ comprobante: data });
+  } catch (e) { console.error('POST comprobante:', e); res.status(500).json({ error: 'Error al registrar comprobante' }); }
+});
+
+// Listar comprobantes: admin ve todos, familiar solo los suyos
+app.get('/api/comprobantes', requireUser, async (req, res) => {
+  try {
+    const admin = isAdmin(req);
+    if (!admin && req.user?.perfil?.rol !== 'familiar') return res.status(403).json({ error: 'Sin permiso' });
+    let q = supabase.from('comprobantes_pago')
+      .select('*, pacientes(nombre, apellido, paquetes(nombre, precio)), perfiles!comprobantes_pago_familiar_id_fkey(nombre, email)')
+      .order('created_at', { ascending: false }).limit(500);
+    if (!admin) q = q.eq('familiar_id', req.user.id);
+    if (req.query.estado) q = q.eq('estado', req.query.estado);
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ comprobantes: data || [] });
+  } catch (e) { console.error('GET comprobantes:', e); res.status(500).json({ error: 'Error al obtener comprobantes' }); }
+});
+
+// URL firmada del comprobante (admin o el familiar dueño)
+app.get('/api/comprobantes/:id/comprobante', requireUser, async (req, res) => {
+  try {
+    const { data: c } = await supabase.from('comprobantes_pago').select('comprobante_path, familiar_id').eq('id', req.params.id).maybeSingle();
+    if (!c?.comprobante_path) return res.status(404).json({ error: 'Sin comprobante adjunto' });
+    if (!isAdmin(req) && c.familiar_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+    const { data, error } = await supabase.storage.from('comprobantes-pago').createSignedUrl(c.comprobante_path, 3600);
+    if (error || !data?.signedUrl) return res.status(404).json({ error: 'Comprobante no disponible' });
+    res.json({ url: data.signedUrl });
+  } catch (e) { res.status(500).json({ error: 'Error' }); }
+});
+
+// Aprobar / rechazar comprobante (solo directivo)
+app.patch('/api/comprobantes/:id', requireUser, async (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Solo el directivo puede validar comprobantes' });
+  try {
+    const { accion, motivo } = req.body || {};
+    const { data: c } = await supabase.from('comprobantes_pago')
+      .select('*, pacientes(nombre, apellido), perfiles!comprobantes_pago_familiar_id_fkey(nombre)')
+      .eq('id', req.params.id).maybeSingle();
+    if (!c) return res.status(404).json({ error: 'Comprobante no encontrado' });
+    if (c.estado !== 'pendiente') return res.status(400).json({ error: `El comprobante ya fue ${c.estado === 'aprobado' ? 'aprobado' : 'rechazado'}` });
+
+    if (accion === 'rechazar') {
+      const mot = String(motivo || '').trim().slice(0, 300);
+      if (!mot) return res.status(400).json({ error: 'Indica el motivo del rechazo para que el familiar lo consulte' });
+      const { data, error } = await supabase.from('comprobantes_pago').update({
+        estado: 'rechazado', motivo_rechazo: mot, revisado_por: req.user.email, revisado_at: new Date().toISOString()
+      }).eq('id', req.params.id).select().single();
+      if (error) throw error;
+      await supabase.from('notificaciones').insert({
+        destinatario_id: c.familiar_id, tipo: 'pago_rechazado',
+        mensaje: `Tu pago de $${num(c.monto).toLocaleString('es-MX')} por ${c.pacientes?.nombre || 'tu adulto mayor'} fue rechazado. Motivo: ${mot}. Si crees que es un error, contacta a la administración.`,
+        datos: { comprobante_id: c.id }
+      }).then(() => {});
+      return res.json({ comprobante: data });
+    }
+
+    if (accion !== 'aprobar') return res.status(400).json({ error: 'Acción inválida (aprobar|rechazar)' });
+
+    // Aprobar: registrar el ingreso real en `pagos` (una sola vez)
+    const periodo = c.fecha_deposito ? c.fecha_deposito.slice(0, 7) : hoyISO().slice(0, 7);
+    const { data: pago, error: errPago } = await supabase.from('pagos').insert({
+      paciente_id: c.paciente_id, monto: num(c.monto), fecha: c.fecha_deposito || hoyISO(),
+      metodo: c.metodo === 'deposito' ? 'Deposito bancario' : 'Transferencia',
+      estado: 'pagado', periodo,
+      notas: `Comprobante digital${c.referencia ? ' · ref. ' + c.referencia : ''}`,
+      comprobante_ref: c.referencia || null,
+      familiar_id: c.familiar_id,
+      registrado_por: `directivo:${req.user.email}`
+    }).select().single();
+    let pagoFinal = pago;
+    if (errPago && /column .* does not exist/i.test(errPago.message || '')) {
+      const { data: p2 } = await supabase.from('pagos').insert({
+        paciente_id: c.paciente_id, monto: num(c.monto), fecha: c.fecha_deposito || hoyISO(),
+        metodo: c.metodo === 'deposito' ? 'Deposito bancario' : 'Transferencia',
+        estado: 'pagado', periodo, notas: `Comprobante digital${c.referencia ? ' · ref. ' + c.referencia : ''}`,
+        registrado_por: `directivo:${req.user.email}`
+      }).select().single();
+      pagoFinal = p2;
+    } else if (errPago) throw errPago;
+
+    const { data, error } = await supabase.from('comprobantes_pago').update({
+      estado: 'aprobado', revisado_por: req.user.email, revisado_at: new Date().toISOString(), pago_id: pagoFinal?.id || null
+    }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+
+    const nombrePac = `${c.pacientes?.nombre || ''} ${c.pacientes?.apellido || ''}`.trim();
+    await supabase.from('notificaciones').insert({
+      destinatario_id: c.familiar_id, tipo: 'pago_aprobado',
+      mensaje: `Tu pago de $${num(c.monto).toLocaleString('es-MX')} por ${nombrePac} fue aprobado y registrado. Ya puedes descargar tu recibo desde "Pagos y estado de cuenta".`,
+      datos: { comprobante_id: c.id, pago_id: pagoFinal?.id }
+    }).then(() => {});
+    res.json({ comprobante: data, pago: pagoFinal });
+  } catch (e) { console.error('PATCH comprobante:', e); res.status(500).json({ error: 'Error al validar comprobante' }); }
+});
+
 // ---------- Evaluación de desempeño del empleado ----------
 const INDICADORES_EVAL = ['puntualidad', 'cumplimiento_visitas', 'calidad_notas', 'cumplimiento_actividades', 'capacitacion', 'satisfaccion', 'seguimiento_indicaciones'];
 const ETIQUETAS_EVAL = {
