@@ -61,6 +61,7 @@ export const NAV = {
   familiar: [
     { area: 'Mi familia', items: [
       { href: '/familiar', label: 'Portal familiar', icon: 'heart' },
+      { href: '/pagos-depositos', label: 'Pagos y depósitos', icon: 'dollar' },
       { href: '/encuestas', label: 'Encuestas', icon: 'star' },
       { href: '/mensajeria', label: 'Mensajería', icon: 'chat' }
     ]}
