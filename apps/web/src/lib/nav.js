@@ -28,7 +28,8 @@ export const NAV = {
     { area: 'Talento humano', items: [
       { href: '/personal', label: 'Personal', icon: 'idcard' },
       { href: '/academia', label: 'Academia', icon: 'cap' },
-      { href: '/evaluaciones', label: 'Evaluaciones', icon: 'check' }
+      { href: '/evaluaciones', label: 'Evaluaciones', icon: 'check' },
+      { href: '/planes', label: 'Planes de mejora', icon: 'trend' }
     ]},
     { area: 'Innovación y territorio', items: [
       { href: '/observatorio', label: 'Observatorio', icon: 'globe' }
@@ -51,7 +52,8 @@ export const NAV = {
     ]},
     { area: 'Formación', items: [
       { href: '/academia', label: 'Academia', icon: 'cap' },
-      { href: '/evaluaciones', label: 'Evaluaciones', icon: 'check' }
+      { href: '/evaluaciones', label: 'Evaluaciones', icon: 'check' },
+      { href: '/planes', label: 'Mis planes', icon: 'trend' }
     ]},
     { area: 'Comunicación', items: [
       { href: '/mensajeria', label: 'Mensajería', icon: 'chat' },
